@@ -44,7 +44,7 @@ install(
 )
 
 if(NOT WIN32)
-    # Besides windows, we link any dependencies
+    # For platforms other than windows, we link any dependencies
     target_link_libraries(tensorflow
         ${tf_core_gpu_kernels_lib}
         ${tensorflow_EXTERNAL_LIBRARIES}
