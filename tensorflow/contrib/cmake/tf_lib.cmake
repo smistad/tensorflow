@@ -96,7 +96,7 @@ install(CODE "
     set(CONF_INCLUDE_DIRS \"${CMAKE_INSTALL_PREFIX}/include/\")
     file(GLOB CONF_LIBRARY \"${CMAKE_INSTALL_PREFIX}/lib/*tensorflow.*\")
     file(GLOB CONF_LIBRARIES \"${CMAKE_INSTALL_PREFIX}/lib/*\")
-    configure_file(TensorflowConfig.cmake.in \"${PROJECT_BINARY_DIR}/TensorflowConfig.cmake\" @ONLY)
+    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/TensorflowConfig.cmake.in \"${PROJECT_BINARY_DIR}/TensorflowConfig.cmake\" @ONLY)
     "
 )
 
