@@ -73,19 +73,7 @@ install(
     PATTERN "*BUILD" EXCLUDE
 )
 
-# 4) Eigen Headers
-install(
-    DIRECTORY 
-    ${tensorflow_source_dir}/tensorflow/contrib/cmake/eigen/src/eigen/Eigen/
-    DESTINATION include/Eigen
-)
-install(
-    DIRECTORY 
-    ${tensorflow_source_dir}/tensorflow/contrib/cmake/eigen/src/eigen/unsupported/
-    DESTINATION include/unsupported
-)
-
-# 5) External libraries
+# 4) External libraries
 if(WIN32)
     # For windows, since we are building a static lib,
     # we also need the static dependencies
@@ -103,11 +91,11 @@ if(WIN32)
     )
 endif(WIN32)
 
-# Write a cmake config file, listing all libraries and include dirs
+# 5) Write a cmake config file, listing all libraries and include dirs
 install(CODE "
-    set(CONF_INCLUDE_DIRS \"${CMAKE_INSTALL_PREFIX}include/\")
-    file(GLOB CONF_LIBRARY \"${CMAKE_INSTALL_PREFIX}lib/*tensorflow.*\")
-    file(GLOB CONF_LIBRARIES \"${CMAKE_INSTALL_PREFIX}lib/*\")
+    set(CONF_INCLUDE_DIRS \"${CMAKE_INSTALL_PREFIX}/include/\")
+    file(GLOB CONF_LIBRARY \"${CMAKE_INSTALL_PREFIX}/lib/*tensorflow.*\")
+    file(GLOB CONF_LIBRARIES \"${CMAKE_INSTALL_PREFIX}/lib/*\")
     configure_file(TensorflowConfig.cmake.in \"${PROJECT_BINARY_DIR}/TensorflowConfig.cmake\" @ONLY)
     "
 )
