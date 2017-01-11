@@ -60,7 +60,7 @@ endif(NOT WIN32)
 install(
     DIRECTORY 
     ${tensorflow_source_dir}/tensorflow/ # Regular headers
-    ${tensorflow_source_dir}/tensorflow/contrib/cmake/tensorflow/ # Protobuf generated headers
+    ${CMAKE_CURRENT_SOURCE_DIR}/tensorflow/ # Protobuf generated headers
     DESTINATION include/tensorflow
     FILES_MATCHING PATTERN "*.h"
 )
