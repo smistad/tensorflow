@@ -185,6 +185,22 @@ if (tensorflow_ENABLE_GPU)
   endif()
 endif()
 
+# 1. Resolve the installed version of Python (for Python.h and python).
+# TODO(mrry): Parameterize the build script to enable Python 3 building.
+include(FindPythonInterp)
+if(NOT PYTHON_INCLUDE_DIR)
+  set(PYTHON_NOT_FOUND false)
+  exec_program("${PYTHON_EXECUTABLE}"
+    ARGS "-c \"import distutils.sysconfig; print(distutils.sysconfig.get_python_inc())\""
+    OUTPUT_VARIABLE PYTHON_INCLUDE_DIR
+    RETURN_VALUE PYTHON_NOT_FOUND)
+  if(${PYTHON_NOT_FOUND})
+    message(FATAL_ERROR
+            "Cannot get Python include directory. Is distutils installed?")
+  endif(${PYTHON_NOT_FOUND})
+endif(NOT PYTHON_INCLUDE_DIR)
+FIND_PACKAGE(PythonLibs)
+
 # Let's get to work!
 include(tf_core_framework.cmake)
 include(tf_tools.cmake)
