@@ -73,6 +73,12 @@ install(
     PATTERN "*BUILD" EXCLUDE
 )
 
+install(
+	DIRECTORY ${PROTOBUF_INCLUDE_DIRS}/google/
+	DESTINATION include/google/
+	FILES_MATCHING PATTERN "*.h"
+)
+
 # 4) External libraries
 if(WIN32)
     # For windows, since we are building a static lib,
@@ -87,6 +93,7 @@ if(WIN32)
         ${farmhash_STATIC_LIBRARIES}
         ${highwayhash_STATIC_LIBRARIES}
         ${protobuf_STATIC_LIBRARIES}
+	${grpc_STATIC_LIBRARIES}
         DESTINATION lib
     )
 endif(WIN32)
