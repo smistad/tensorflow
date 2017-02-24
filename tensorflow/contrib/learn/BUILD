@@ -32,10 +32,6 @@ py_library(
         "//tensorflow/contrib/rnn:rnn_py",
         "//tensorflow/contrib/session_bundle:exporter",
         "//tensorflow/contrib/session_bundle:gc",
-        "//tensorflow/contrib/tensor_forest:client_lib",
-        "//tensorflow/contrib/tensor_forest:data_ops_py",
-        "//tensorflow/contrib/tensor_forest:eval_metrics",
-        "//tensorflow/contrib/tensor_forest:tensor_forest_py",
         "//tensorflow/contrib/training:training_py",
         "//tensorflow/core:protos_all_py",
         "//tensorflow/python:array_ops",
@@ -512,6 +508,27 @@ py_test(
 )
 
 py_test(
+    name = "estimator_input_test",
+    size = "medium",
+    srcs = ["python/learn/estimators/estimator_input_test.py"],
+    srcs_version = "PY2AND3",
+    deps = [
+        ":learn",
+        "//tensorflow/contrib/framework:framework_py",
+        "//tensorflow/contrib/layers:layers_py",
+        "//tensorflow/contrib/learn/python/learn/datasets",
+        "//tensorflow/contrib/metrics:metrics_py",
+        "//tensorflow/python:array_ops",
+        "//tensorflow/python:client_testlib",
+        "//tensorflow/python:data_flow_ops",
+        "//tensorflow/python:framework_for_generated_wrappers",
+        "//tensorflow/python:math_ops",
+        "//tensorflow/python:training",
+        "//third_party/py/numpy",
+    ],
+)
+
+py_test(
     name = "logistic_regressor_test",
     size = "small",
     srcs = ["python/learn/estimators/logistic_regressor_test.py"],
@@ -552,6 +569,7 @@ py_test(
         "//tensorflow/python:init_ops",
         "//tensorflow/python:math_ops",
         "//tensorflow/python:training",
+        "//tensorflow/python/ops/losses",
         "//third_party/py/numpy",
     ],
 )
@@ -669,21 +687,6 @@ py_test(
         "//tensorflow/python:framework_for_generated_wrappers",
         "//tensorflow/python:framework_test_lib",
         "//tensorflow/python:training",
-        "//third_party/py/numpy",
-    ],
-)
-
-py_test(
-    name = "random_forest_test",
-    size = "medium",
-    srcs = ["python/learn/estimators/random_forest_test.py"],
-    srcs_version = "PY2AND3",
-    deps = [
-        ":learn",
-        "//tensorflow/contrib/learn/python/learn/datasets",
-        "//tensorflow/contrib/tensor_forest:tensor_forest_py",
-        "//tensorflow/python:client_testlib",
-        "//tensorflow/python:framework_test_lib",
         "//third_party/py/numpy",
     ],
 )
@@ -1036,12 +1039,12 @@ py_test(
 
 py_binary(
     name = "inspect_checkpoint",
-    srcs = [
-        "python/learn/utils/inspect_checkpoint.py",
-    ],
+    srcs = ["python/learn/utils/inspect_checkpoint.py"],
     srcs_version = "PY2AND3",
     deps = [
-        "//tensorflow:tensorflow_py",
+        "//tensorflow/contrib/framework:framework_py",
+        "//tensorflow/python",  # TODO(b/34059704): remove when fixed
+        "//tensorflow/python:platform",
     ],
 )
 

@@ -122,11 +122,11 @@ import math
 
 import six
 
+from tensorflow.contrib import lookup
 from tensorflow.contrib.layers.python.layers import layers
 from tensorflow.contrib.layers.python.ops import bucketization_op
 from tensorflow.contrib.layers.python.ops import sparse_feature_cross_op
 from tensorflow.contrib.layers.python.ops import sparse_ops as contrib_sparse_ops
-from tensorflow.contrib.lookup import lookup_ops as contrib_lookup_ops
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import sparse_tensor as sparse_tensor_py
 from tensorflow.python.ops import array_ops
@@ -587,7 +587,7 @@ class _SparseColumnKeys(_SparseColumn):
     """Handles sparse column to id conversion."""
     input_tensor = self._get_input_sparse_tensor(columns_to_tensors)
 
-    table = contrib_lookup_ops.string_to_index_table_from_tensor(
+    table = lookup.string_to_index_table_from_tensor(
         mapping=list(self.lookup_config.keys),
         default_value=self.lookup_config.default_value,
         name="lookup")
@@ -662,7 +662,7 @@ class _SparseColumnVocabulary(_SparseColumn):
     else:
       sparse_string_tensor = st
 
-    table = contrib_lookup_ops.string_to_index_table_from_file(
+    table = lookup.string_to_index_table_from_file(
         vocabulary_file=self.lookup_config.vocabulary_file,
         num_oov_buckets=self.lookup_config.num_oov_buckets,
         vocab_size=self.lookup_config.vocab_size,
@@ -895,15 +895,18 @@ class _OneHotColumn(_FeatureColumn,
       This is not yet supported.
     """
 
-    if (self.sparse_id_column.weight_tensor(transformed_input_tensor) is
-        not None):
-      raise ValueError("one_hot_column does not yet support "
-                       "weighted_sparse_column. Column: {}".format(self))
-
     # Reshape ID column to `output_rank`.
     sparse_id_column = self.sparse_id_column.id_tensor(transformed_input_tensor)
     # pylint: disable=protected-access
     sparse_id_column = layers._inner_flatten(sparse_id_column, output_rank)
+
+    weight_tensor = self.sparse_id_column.weight_tensor(
+        transformed_input_tensor)
+    if weight_tensor is not None:
+      weighted_column = sparse_ops.sparse_merge(sp_ids=sparse_id_column,
+                                                sp_values=weight_tensor,
+                                                vocab_size=self.length)
+      return sparse_ops.sparse_tensor_to_dense(weighted_column)
 
     dense_id_tensor = sparse_ops.sparse_tensor_to_dense(sparse_id_column,
                                                         default_value=-1)

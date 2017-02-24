@@ -15,7 +15,6 @@ py_library(
         ":process_graph",
         "//tensorflow/python:platform",
         "//tensorflow/python:summary",
-        "//tensorflow/tensorboard:projector",
         "//tensorflow/tensorboard/lib/python:http",
         "@six_archive//:six",
     ],
@@ -48,18 +47,18 @@ py_library(
         ":handler",
         "//tensorflow/python:platform",
         "//tensorflow/python:summary",
+        "//tensorflow/tensorboard:projector",
         "@six_archive//:six",
     ],
 )
 
 py_test(
     name = "server_test",
-    size = "small",
+    size = "medium",
     srcs = ["server_test.py"],
     data = ["//tensorflow/tensorboard:frontend"],
     srcs_version = "PY2AND3",
     deps = [
-        ":handler",
         ":server",
         "//tensorflow/core:protos_all_py",
         "//tensorflow/python:client",
@@ -71,6 +70,7 @@ py_test(
         "//tensorflow/python:training",
         "//tensorflow/python:variable_scope",
         "//tensorflow/python:variables",
+        "//tensorflow/tensorboard:projector",
         "//third_party/py/numpy",
     ],
 )

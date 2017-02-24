@@ -4,6 +4,54 @@ load("//third_party/gpus:cuda_configure.bzl", "cuda_configure")
 load("//third_party/sycl:sycl_configure.bzl", "sycl_configure")
 
 
+# Parse the bazel version string from `native.bazel_version`.
+def _parse_bazel_version(bazel_version):
+  # Remove commit from version.
+  version = bazel_version.split(" ", 1)[0]
+
+  # Split into (release, date) parts and only return the release
+  # as a tuple of integers.
+  parts = version.split('-', 1)
+
+  # Turn "release" into a tuple of strings
+  version_tuple = ()
+  for number in parts[0].split('.'):
+    version_tuple += (str(number),)
+  return version_tuple
+
+# Check that a specific bazel version is being used.
+def check_version(bazel_version):
+  if "bazel_version" not in dir(native):
+    fail("\nCurrent Bazel version is lower than 0.2.1, expected at least %s\n" % bazel_version)
+  elif not native.bazel_version:
+    print("\nCurrent Bazel is not a release version, cannot check for compatibility.")
+    print("Make sure that you are running at least Bazel %s.\n" % bazel_version)
+  else:
+    current_bazel_version = _parse_bazel_version(native.bazel_version)
+    minimum_bazel_version = _parse_bazel_version(bazel_version)
+    if minimum_bazel_version > current_bazel_version:
+      fail("\nCurrent Bazel version is {}, expected at least {}\n".format(
+          native.bazel_version, bazel_version))
+  pass
+
+# Temporary workaround to support including TensorFlow as a submodule until this
+# use-case is supported in the next Bazel release.
+def _temp_workaround_http_archive_impl(repo_ctx):
+   repo_ctx.template("BUILD", repo_ctx.attr.build_file,
+                     {"%ws%": repo_ctx.attr.repository}, False)
+   repo_ctx.download_and_extract(repo_ctx.attr.urls, "", repo_ctx.attr.sha256,
+                                 "", repo_ctx.attr.strip_prefix)
+
+temp_workaround_http_archive = repository_rule(
+   implementation=_temp_workaround_http_archive_impl,
+   attrs = {
+      "build_file": attr.label(),
+      "repository": attr.string(),
+      "urls": attr.string_list(default = []),
+      "sha256": attr.string(default = ""),
+      "strip_prefix": attr.string(default = ""),
+   })
+
 # If TensorFlow is linked as a submodule.
 # path_prefix and tf_repo_name are no longer used.
 def tf_workspace(path_prefix = "", tf_repo_name = ""):
@@ -98,7 +146,7 @@ def tf_workspace(path_prefix = "", tf_repo_name = ""):
       build_file = str(Label("//third_party:nasm.BUILD")),
   )
 
-  native.new_http_archive(
+  temp_workaround_http_archive(
       name = "jpeg",
       urls = [
           "http://bazel-mirror.storage.googleapis.com/github.com/libjpeg-turbo/libjpeg-turbo/archive/1.5.1.tar.gz",
@@ -107,6 +155,7 @@ def tf_workspace(path_prefix = "", tf_repo_name = ""):
       sha256 = "c15a9607892113946379ccea3ca8b85018301b200754f209453ab21674268e77",
       strip_prefix = "libjpeg-turbo-1.5.1",
       build_file = str(Label("//third_party/jpeg:jpeg.BUILD")),
+      repository = tf_repo_name,
   )
 
   native.new_http_archive(
@@ -266,15 +315,16 @@ def tf_workspace(path_prefix = "", tf_repo_name = ""):
 
   # TODO(phawkins): currently, this rule uses an unofficial LLVM mirror.
   # Switch to an official source of snapshots if/when possible.
-  native.new_http_archive(
+  temp_workaround_http_archive(
       name = "llvm",
       urls = [
-          "http://bazel-mirror.storage.googleapis.com/github.com/llvm-mirror/llvm/archive/ad27fdae895df1b9ad11a93102de6622f63e1220.tar.gz",
-          "https://github.com/llvm-mirror/llvm/archive/ad27fdae895df1b9ad11a93102de6622f63e1220.tar.gz",
+          "http://bazel-mirror.storage.googleapis.com/github.com/llvm-mirror/llvm/archive/2276fd31f36aa58f39397c435a8be6632d8c8505.tar.gz",
+          "https://github.com/llvm-mirror/llvm/archive/2276fd31f36aa58f39397c435a8be6632d8c8505.tar.gz",
       ],
-      sha256 = "ce7abf076586f2ef13dcd1c4e7ba13604a0826a0f44fe0a6faceeb9bdffc8544",
-      strip_prefix = "llvm-ad27fdae895df1b9ad11a93102de6622f63e1220",
+      sha256 = "0e08c91752732227280466d12f330a5854569deddf28ff4a6c3898334dbb0d16",
+      strip_prefix = "llvm-2276fd31f36aa58f39397c435a8be6632d8c8505",
       build_file = str(Label("//third_party/llvm:llvm.BUILD")),
+      repository = tf_repo_name,
   )
 
   native.new_http_archive(
@@ -335,6 +385,14 @@ def tf_workspace(path_prefix = "", tf_repo_name = ""):
       actual = "@zlib_archive//:zlib",
   )
 
+  native.new_http_archive(
+      name = "nccl_archive",
+      url = "https://github.com/nvidia/nccl/archive/024d1e267845f2ed06f3e2e42476d50f04a00ee6.tar.gz",
+      sha256 = "6787f0eed88d52ee8e32956fa4947d92c139da469f1d8e311c307f27d641118e",
+      strip_prefix = "nccl-024d1e267845f2ed06f3e2e42476d50f04a00ee6",
+      build_file = str(Label("//third_party:nccl.BUILD")),
+  )
+
   # Make junit-4.12 available as //external:junit
   native.http_jar(
       name = "junit_jar",
@@ -345,4 +403,16 @@ def tf_workspace(path_prefix = "", tf_repo_name = ""):
   native.bind(
       name = "junit",
       actual = "@junit_jar//jar",
+  )
+
+  temp_workaround_http_archive(
+      name = "jemalloc",
+      urls = [
+          "http://bazel-mirror.storage.googleapis.com/github.com/jemalloc/jemalloc/archive/4.4.0.tar.gz",
+          "https://github.com/jemalloc/jemalloc/archive/4.4.0.tar.gz",
+      ],
+      sha256 = "3c8f25c02e806c3ce0ab5fb7da1817f89fc9732709024e2a81b6b82f7cc792a8",
+      strip_prefix = "jemalloc-4.4.0",
+      build_file = str(Label("//third_party:jemalloc.BUILD")),
+      repository = tf_repo_name,
   )
