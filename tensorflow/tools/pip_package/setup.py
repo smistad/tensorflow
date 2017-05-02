@@ -36,6 +36,9 @@ REQUIRED_PACKAGES = [
     'six >= 1.10.0',
     'protobuf >= 3.2.0',
     'werkzeug >= 0.11.10',
+    'html5lib == 0.9999999',  # identical to 1.0b8
+    'markdown == 2.2.0',
+    'bleach == 1.5.0',
 ]
 
 project_name = 'tensorflow'
@@ -56,6 +59,7 @@ else:
 # pylint: disable=line-too-long
 CONSOLE_SCRIPTS = [
     'tensorboard = tensorflow.tensorboard.tensorboard:main',
+    'saved_model_cli = tensorflow.python.tools.saved_model_cli:main',
 ]
 # pylint: enable=line-too-long
 
@@ -184,13 +188,14 @@ setup(
     # Add in any packaged data.
     include_package_data=True,
     package_data={
-        'tensorflow': [EXTENSION_NAME,
-                       'tensorboard/dist/bazel-html-imports.html',
-                       'tensorboard/dist/index.html',
-                       'tensorboard/dist/tf-tensorboard.html',
-                       'tensorboard/lib/css/global.css',
-                       'tensorboard/TAG',
-                     ] + matches,
+        'tensorflow': [
+            EXTENSION_NAME,
+            'tensorboard/dist/bazel-html-imports.html',
+            'tensorboard/dist/index.html',
+            'tensorboard/dist/tf-tensorboard.html',
+            'tensorboard/lib/css/global.css',
+            'tensorboard/TAG',
+        ] + matches,
     },
     zip_safe=False,
     distclass=BinaryDistribution,
@@ -209,7 +214,6 @@ setup(
         'Topic :: Scientific/Engineering :: Mathematics',
         'Topic :: Software Development :: Libraries :: Python Modules',
         'Topic :: Software Development :: Libraries',
-        ],
+    ],
     license='Apache 2.0',
-    keywords='tensorflow tensor machine learning',
-    )
+    keywords='tensorflow tensor machine learning',)

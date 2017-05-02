@@ -30,7 +30,7 @@ statistics.
 
 tfprof is part of TensorFlow core. Simply ```import tensorflow as tf```.
 
-### Examine the shapes and sizes of all trainiable Variables.
+### Examine the shapes and sizes of all trainable Variables.
 ```python
 # Print trainable variable parameter statistics to stdout.
 param_stats = tf.contrib.tfprof.model_analyzer.print_model_analysis(
@@ -52,6 +52,7 @@ sys.stdout.write('total_params: %d\n' % param_stats.total_parameters)
 # also requires complete shape information. It is common that shape is unknown
 # statically. To complete the shape, provide run-time shape information with
 # tf.RunMetadata to the API (See next example on how to provide RunMetadata).
+#
 tf.contrib.tfprof.model_analyzer.print_model_analysis(
     tf.get_default_graph(),
     tfprof_options=tf.contrib.tfprof.model_analyzer.FLOAT_OPS_OPTIONS)
@@ -64,8 +65,16 @@ compute the memory and timing statistics.
 ```python
 # Generate the meta information for the model that contains the memory usage
 # and timing information.
+#
+# Note: When run on GPU, a kernel is first scheduled (enqueued) and then
+#       executed asynchronously. tfprof only tracks the execution time.
+#       Which is from proto CostGraphDef::Node::compute_cost.
+#       In addition, a substantial of time might be spent between Python and
+#       TensorFlow runtime, which is also not tracked by tfprof.
+#
+config = tf.ConfigProto(graph_options=tf.GraphOptions(build_cost_model=1))
 run_metadata = tf.RunMetadata()
-with tf.Session() as sess:
+with tf.Session(config=config) as sess:
   _ = sess.run(train_op,
                options=tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE),
                run_metadata=run_metadata)
@@ -430,7 +439,7 @@ with gfile.Open(os.path.join(output_dir, "run_meta"), "w") as f:
 <b>--op_log_path:</b>
 tensorflow::tfprof::OpLog. A proto used to provide extra op information
 for ops. By giving a group of ops a type name, users can easily aggregate the
-statistics for those ops without accidently missing or including extra ops.
+statistics for those ops without accidentally missing or including extra ops.
 tfprof exposes the following Python API to add op information and logging.
 
 ```python

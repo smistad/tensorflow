@@ -72,7 +72,7 @@ for abalone:
 
 The label to predict is number of rings, as a proxy for abalone age.
 
-![Abalone shell](../images/abalone_shell.jpg) **[“Abalone
+![Abalone shell](https://www.tensorflow.org/abalone_shell.jpg) **[“Abalone
 shell”](https://www.flickr.com/photos/thenickster/16641048623/) (by [Nicki Dugan
 Pogue](https://www.flickr.com/photos/thenickster/), CC BY-SA 2.0)**
 
@@ -247,7 +247,7 @@ For the abalone age predictor, the model will accept one hyperparameter:
 learning rate. Define `LEARNING_RATE` as a constant at the beginning of your
 code (highlighted in bold below), right after the logging configuration:
 
-<pre><code class="lang-python">tf.logging.set_verbosity(tf.logging.INFO)
+<pre class="prettyprint"><code class="lang-python">tf.logging.set_verbosity(tf.logging.INFO)
 
 <strong># Learning rate for the model
 LEARNING_RATE = 0.001</strong></code></pre>
@@ -495,7 +495,7 @@ metrics, including:
 The following example adds a definition for `loss` to the abalone `model_fn`
 using `mean_squared_error()` (in bold):
 
-<pre><code class="lang-python">def model_fn(features, targets, mode, params):
+<pre class="prettyprint"><code class="lang-python">def model_fn(features, targets, mode, params):
   """Model function for Estimator."""
 
   # Connect the first hidden layer to input layer

@@ -71,7 +71,7 @@ See the @{$python/contrib.distributions} guide.
 @@RelaxedOneHotCategorical
 
 ## Kullback-Leibler Divergence
-@@kl
+@@kl_divergence
 @@RegisterKL
 
 ## Helper Functions
@@ -80,6 +80,9 @@ See the @{$python/contrib.distributions} guide.
 @@normal_conjugates_known_scale_predictive
 @@softplus_inverse
 
+## Functions for statistics of samples
+@@percentile
+
 """
 from __future__ import absolute_import
 from __future__ import division
@@ -87,26 +90,22 @@ from __future__ import print_function
 
 # pylint: disable=unused-import,wildcard-import,line-too-long,g-importing-member
 
-
+from tensorflow.contrib.distributions.python.ops import bijectors
 from tensorflow.contrib.distributions.python.ops.bernoulli import *
 from tensorflow.contrib.distributions.python.ops.beta import *
-from tensorflow.contrib.distributions.python.ops.bijectors import *
 from tensorflow.contrib.distributions.python.ops.binomial import *
 from tensorflow.contrib.distributions.python.ops.categorical import *
 from tensorflow.contrib.distributions.python.ops.chi2 import *
-from tensorflow.contrib.distributions.python.ops.conditional_distribution import *
 from tensorflow.contrib.distributions.python.ops.conditional_transformed_distribution import *
 from tensorflow.contrib.distributions.python.ops.deterministic import *
 from tensorflow.contrib.distributions.python.ops.dirichlet import *
 from tensorflow.contrib.distributions.python.ops.dirichlet_multinomial import *
-from tensorflow.contrib.distributions.python.ops.distribution import *
 from tensorflow.contrib.distributions.python.ops.distribution_util import matrix_diag_transform
 from tensorflow.contrib.distributions.python.ops.distribution_util import softplus_inverse
 from tensorflow.contrib.distributions.python.ops.exponential import *
 from tensorflow.contrib.distributions.python.ops.gamma import *
 from tensorflow.contrib.distributions.python.ops.geometric import *
 from tensorflow.contrib.distributions.python.ops.inverse_gamma import *
-from tensorflow.contrib.distributions.python.ops.kullback_leibler import *
 from tensorflow.contrib.distributions.python.ops.laplace import *
 from tensorflow.contrib.distributions.python.ops.logistic import *
 from tensorflow.contrib.distributions.python.ops.mixture import *
@@ -115,24 +114,32 @@ from tensorflow.contrib.distributions.python.ops.mvn_diag import *
 from tensorflow.contrib.distributions.python.ops.mvn_diag_plus_low_rank import *
 from tensorflow.contrib.distributions.python.ops.mvn_tril import *
 from tensorflow.contrib.distributions.python.ops.negative_binomial import *
-from tensorflow.contrib.distributions.python.ops.normal import *
 from tensorflow.contrib.distributions.python.ops.normal_conjugate_posteriors import *
 from tensorflow.contrib.distributions.python.ops.onehot_categorical import *
 from tensorflow.contrib.distributions.python.ops.poisson import *
 from tensorflow.contrib.distributions.python.ops.quantized_distribution import *
 from tensorflow.contrib.distributions.python.ops.relaxed_bernoulli import *
 from tensorflow.contrib.distributions.python.ops.relaxed_onehot_categorical import *
+from tensorflow.contrib.distributions.python.ops.sample_stats import *
 from tensorflow.contrib.distributions.python.ops.student_t import *
 from tensorflow.contrib.distributions.python.ops.transformed_distribution import *
 from tensorflow.contrib.distributions.python.ops.uniform import *
 from tensorflow.contrib.distributions.python.ops.wishart import *
+from tensorflow.python.ops.distributions.conditional_distribution import *
+from tensorflow.python.ops.distributions.distribution import *
+from tensorflow.python.ops.distributions.kullback_leibler import *
+from tensorflow.python.ops.distributions.normal import *
 
 # pylint: enable=unused-import,wildcard-import,line-too-long,g-importing-member
 
 from tensorflow.python.util.all_util import remove_undocumented
 
-_allowed_symbols = ['ConditionalDistribution',
-                    'ConditionalTransformedDistribution',
-                    'FULLY_REPARAMETERIZED', 'NOT_REPARAMETERIZED']
+_allowed_symbols = [
+    'bijectors',
+    'ConditionalDistribution',
+    'ConditionalTransformedDistribution',
+    'FULLY_REPARAMETERIZED',
+    'NOT_REPARAMETERIZED',
+]
 
 remove_undocumented(__name__, _allowed_symbols)

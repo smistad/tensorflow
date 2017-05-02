@@ -52,6 +52,7 @@ from tensorflow.python.training import learning_rate_decay
 from tensorflow.python.training import monitored_session
 from tensorflow.python.training import server_lib
 from tensorflow.python.training import session_run_hook
+from tensorflow.python.training import sync_replicas_optimizer
 from tensorflow.python.training import training_util
 
 
@@ -274,6 +275,27 @@ class DNNLinearCombinedClassifierTest(test.TestCase):
           dnn_feature_columns=[age, language])
       classifier.fit(input_fn=_input_fn, steps=2)
 
+  def testSyncReplicasOptimizerUnsupported(self):
+    cont_features = [feature_column.real_valued_column('feature', dimension=4)]
+
+    sync_optimizer = sync_replicas_optimizer.SyncReplicasOptimizer(
+        opt=adagrad.AdagradOptimizer(learning_rate=0.1),
+        replicas_to_aggregate=1,
+        total_num_replicas=1)
+    sync_hook = sync_optimizer.make_session_run_hook(is_chief=True)
+    classifier = dnn_linear_combined.DNNLinearCombinedClassifier(
+        n_classes=3,
+        dnn_feature_columns=cont_features,
+        dnn_hidden_units=[3, 3],
+        dnn_optimizer=sync_optimizer)
+
+    with self.assertRaisesRegexp(
+        ValueError,
+        'SyncReplicasOptimizer is not supported in DNNLinearCombined model'):
+      classifier.fit(
+          input_fn=test_data.iris_input_multiclass_fn, steps=100,
+          monitors=[sync_hook])
+
   def testEmbeddingMultiplier(self):
     embedding_language = feature_column.embedding_column(
         feature_column.sparse_column_with_hash_bucket('language', 10),
@@ -319,7 +341,7 @@ class DNNLinearCombinedClassifierTest(test.TestCase):
         input_layer_min_slice_size=1)
 
     # Ensure the param is passed in.
-    self.assertEqual(1, classifier.params['input_layer_min_slice_size'])
+    self.assertTrue(callable(classifier.params['input_layer_partitioner']))
 
     # Ensure the partition count is 10.
     classifier.fit(input_fn=_input_fn_float_label, steps=50)
@@ -470,6 +492,59 @@ class DNNLinearCombinedClassifierTest(test.TestCase):
     scores = classifier.evaluate(
         input_fn=test_data.iris_input_multiclass_fn, steps=100)
     _assert_metrics_in_range(('accuracy',), scores)
+
+  def testMultiClassLabelKeys(self):
+    """Tests n_classes > 2 with label_keys vocabulary for labels."""
+    # Byte literals needed for python3 test to pass.
+    label_keys = [b'label0', b'label1', b'label2']
+
+    def _input_fn(num_epochs=None):
+      features = {
+          'age':
+              input_lib.limit_epochs(
+                  constant_op.constant([[.8], [0.2], [.1]]),
+                  num_epochs=num_epochs),
+          'language':
+              sparse_tensor.SparseTensor(
+                  values=input_lib.limit_epochs(
+                      ['en', 'fr', 'zh'], num_epochs=num_epochs),
+                  indices=[[0, 0], [0, 1], [2, 0]],
+                  dense_shape=[3, 2])
+      }
+      labels = constant_op.constant(
+          [[label_keys[1]], [label_keys[0]], [label_keys[0]]],
+          dtype=dtypes.string)
+      return features, labels
+
+    language_column = feature_column.sparse_column_with_hash_bucket(
+        'language', hash_bucket_size=20)
+
+    classifier = dnn_linear_combined.DNNLinearCombinedClassifier(
+        n_classes=3,
+        linear_feature_columns=[language_column],
+        dnn_feature_columns=[
+            feature_column.embedding_column(
+                language_column, dimension=1),
+            feature_column.real_valued_column('age')
+        ],
+        dnn_hidden_units=[3, 3],
+        label_keys=label_keys)
+
+    classifier.fit(input_fn=_input_fn, steps=50)
+
+    scores = classifier.evaluate(input_fn=_input_fn, steps=1)
+    _assert_metrics_in_range(('accuracy',), scores)
+    self.assertIn('loss', scores)
+    predict_input_fn = functools.partial(_input_fn, num_epochs=1)
+    predicted_classes = list(
+        classifier.predict_classes(
+            input_fn=predict_input_fn, as_iterable=True))
+    self.assertEqual(3, len(predicted_classes))
+    for pred in predicted_classes:
+      self.assertIn(pred, label_keys)
+    predictions = list(
+        classifier.predict(input_fn=predict_input_fn, as_iterable=True))
+    self.assertAllEqual(predicted_classes, predictions)
 
   def testLoss(self):
     """Tests loss calculation."""

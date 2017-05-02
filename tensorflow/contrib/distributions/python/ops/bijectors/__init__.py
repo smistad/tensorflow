@@ -14,8 +14,6 @@
 # ==============================================================================
 """Bijector Ops.
 
-See the @{$python/contrib.distributions.bijectors} guide.
-
 @@Affine
 @@AffineLinearOperator
 @@Bijector
@@ -41,7 +39,6 @@ from __future__ import print_function
 
 from tensorflow.contrib.distributions.python.ops.bijectors.affine import *
 from tensorflow.contrib.distributions.python.ops.bijectors.affine_linear_operator import *
-from tensorflow.contrib.distributions.python.ops.bijectors.bijector import *
 from tensorflow.contrib.distributions.python.ops.bijectors.chain import *
 from tensorflow.contrib.distributions.python.ops.bijectors.cholesky_outer_product import *
 from tensorflow.contrib.distributions.python.ops.bijectors.conditional_bijector import *
@@ -54,5 +51,10 @@ from tensorflow.contrib.distributions.python.ops.bijectors.sigmoid import *
 from tensorflow.contrib.distributions.python.ops.bijectors.sigmoid_centered import *
 from tensorflow.contrib.distributions.python.ops.bijectors.softmax_centered import *
 from tensorflow.contrib.distributions.python.ops.bijectors.softplus import *
+from tensorflow.python.ops.distributions.bijector import *
 
 # pylint: enable=unused-import,wildcard-import,line-too-long,g-importing-member
+
+from tensorflow.python.util.all_util import remove_undocumented
+
+remove_undocumented(__name__)

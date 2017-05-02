@@ -36,7 +36,7 @@ from tensorflow.python.layers import base
 from tensorflow.python.layers import utils
 
 
-class _Pooling1D(base._Layer):  # pylint: disable=protected-access
+class _Pooling1D(base.Layer):
   """Pooling layer for arbitrary pooling functions, for 1D inputs.
 
   This class only exists for code reuse. It will never be an exposed API.
@@ -222,7 +222,7 @@ def max_pooling1d(inputs, pool_size, strides,
   return layer.apply(inputs)
 
 
-class _Pooling2D(base._Layer):  # pylint: disable=protected-access
+class _Pooling2D(base.Layer):
   """Pooling layer for arbitrary pooling functions, for 2D inputs (e.g. images).
 
   This class only exists for code reuse. It will never be an exposed API.
@@ -294,7 +294,7 @@ class AveragePooling2D(_Pooling2D):
     data_format: A string. The ordering of the dimensions in the inputs.
       `channels_last` (default) and `channels_first` are supported.
       `channels_last` corresponds to inputs with shape
-      `(batch, height, channels, width)` while `channels_first` corresponds to
+      `(batch, height, width, channels)` while `channels_first` corresponds to
       inputs with shape `(batch, channels, height, width)`.
     name: A string, the name of the layer.
   """
@@ -329,7 +329,7 @@ def average_pooling2d(inputs,
     data_format: A string. The ordering of the dimensions in the inputs.
       `channels_last` (default) and `channels_first` are supported.
       `channels_last` corresponds to inputs with shape
-      `(batch, height, channels, width)` while `channels_first` corresponds to
+      `(batch, height, width, channels)` while `channels_first` corresponds to
       inputs with shape `(batch, channels, height, width)`.
     name: A string, the name of the layer.
 
@@ -407,7 +407,7 @@ def max_pooling2d(inputs,
   return layer.apply(inputs)
 
 
-class _Pooling3D(base._Layer):  # pylint: disable=protected-access
+class _Pooling3D(base.Layer):
   """Pooling layer for arbitrary pooling functions, for 3D inputs.
 
   This class only exists for code reuse. It will never be an exposed API.

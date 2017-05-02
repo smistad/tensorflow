@@ -42,6 +42,7 @@ from tensorflow.python.framework import errors
 from tensorflow.python.framework import ops
 from tensorflow.python.framework import random_seed
 from tensorflow.python.framework import versions
+from tensorflow.python.ops import array_ops
 from tensorflow.python.platform import googletest
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.util import compat
@@ -116,6 +117,36 @@ def assert_equal_graph_def(actual, expected, checkpoint_v2=False):
     raise AssertionError(compat.as_str(diff))
 
 
+def assert_meta_graph_protos_equal(tester, a, b):
+  """Compares MetaGraphDefs `a` and `b` in unit test class `tester`."""
+  # Carefully check the collection_defs
+  tester.assertEqual(set(a.collection_def), set(b.collection_def))
+  collection_keys = a.collection_def.keys()
+  for k in collection_keys:
+    a_value = a.collection_def[k]
+    b_value = b.collection_def[k]
+    proto_type = ops.get_collection_proto_type(k)
+    if proto_type:
+      a_proto = proto_type()
+      b_proto = proto_type()
+      # Number of entries in the collections is the same
+      tester.assertEqual(len(a_value.bytes_list.value),
+                         len(b_value.bytes_list.value))
+      for (a_value_item, b_value_item) in zip(
+          a_value.bytes_list.value,
+          b_value.bytes_list.value):
+        a_proto.ParseFromString(a_value_item)
+        b_proto.ParseFromString(b_value_item)
+        tester.assertProtoEquals(a_proto, b_proto)
+    else:
+      tester.assertEquals(a_value, b_value)
+  # Compared the fields directly, remove their raw values from the
+  # proto comparison below.
+  a.ClearField("collection_def")
+  b.ClearField("collection_def")
+  tester.assertProtoEquals(a, b)
+
+
 # Matches attributes named via _SHARDED_SUFFIX in
 # tensorflow/python/training/saver.py
 _SHARDED_SAVE_OP_PATTERN = "_temp_[0-9a-z]{32}/part"
@@ -141,6 +172,50 @@ def IsGoogleCudaEnabled():
 
 def CudaSupportsHalfMatMulAndConv():
   return pywrap_tensorflow.CudaSupportsHalfMatMulAndConv()
+
+
+def NHWCToNCHW(input_tensor):
+  """Converts the input from the NHWC format to NCHW.
+
+  Args:
+    input_tensor: a 4- or 5-D tensor, or an array representing shape
+
+  Returns:
+    converted tensor or shape array
+  """
+  # tensor dim -> new axis order
+  new_axes = {
+      4: [0, 3, 1, 2],
+      5: [0, 4, 1, 2, 3]
+  }
+  if isinstance(input_tensor, ops.Tensor):
+    ndims = input_tensor.shape.ndims
+    return array_ops.transpose(input_tensor, new_axes[ndims])
+  else:
+    ndims = len(input_tensor)
+    return [input_tensor[a] for a in new_axes[ndims]]
+
+
+def NCHWToNHWC(input_tensor):
+  """Converts the input from the NCHW format to NHWC.
+
+  Args:
+    input_tensor: a 4- or 5-D tensor, or an array representing shape
+
+  Returns:
+    converted tensor or shape array
+  """
+  # tensor dim -> new axis order
+  new_axes = {
+      4: [0, 2, 3, 1],
+      5: [0, 2, 3, 4, 1]
+  }
+  if isinstance(input_tensor, ops.Tensor):
+    ndims = input_tensor.shape.ndims
+    return array_ops.transpose(input_tensor, new_axes[ndims])
+  else:
+    ndims = len(input_tensor)
+    return [input_tensor[a] for a in new_axes[ndims]]
 
 
 class TensorFlowTestCase(googletest.TestCase):
@@ -489,15 +564,7 @@ class TensorFlowTestCase(googletest.TestCase):
       a = np.array(a)
     return a
 
-  def assertAllClose(self, a, b, rtol=1e-6, atol=1e-6):
-    """Asserts that two numpy arrays have near values.
-
-    Args:
-      a: a numpy ndarray or anything can be converted to one.
-      b: a numpy ndarray or anything can be converted to one.
-      rtol: relative tolerance.
-      atol: absolute tolerance.
-    """
+  def _assertArrayLikeAllClose(self, a, b, rtol=1e-6, atol=1e-6, msg=None):
     a = self._GetNdArray(a)
     b = self._GetNdArray(b)
     self.assertEqual(a.shape, b.shape, "Shape mismatch: expected %s, got %s." %
@@ -525,7 +592,37 @@ class TensorFlowTestCase(googletest.TestCase):
       print("not close dif = ", np.abs(x - y))
       print("not close tol = ", atol + rtol * np.abs(y))
       print("dtype = %s, shape = %s" % (a.dtype, a.shape))
-      np.testing.assert_allclose(a, b, rtol=rtol, atol=atol)
+      np.testing.assert_allclose(a, b, rtol=rtol, atol=atol, err_msg=msg)
+
+  def assertAllClose(self, a, b, rtol=1e-6, atol=1e-6):
+    """Asserts that two numpy arrays, or dicts of same, have near values.
+
+    This does not support nested dicts.
+
+    Args:
+      a: A numpy ndarray (or anything can be converted to one), or dict of same.
+        Must be a dict iff `b` is a dict.
+      b: A numpy ndarray (or anything can be converted to one), or dict of same.
+        Must be a dict iff `a` is a dict.
+      rtol: relative tolerance.
+      atol: absolute tolerance.
+
+    Raises:
+      ValueError: if only one of `a` and `b` is a dict.
+    """
+    is_a_dict = isinstance(a, dict)
+    if is_a_dict != isinstance(b, dict):
+      raise ValueError("Can't compare dict to non-dict, %s vs %s." % (a, b))
+    if is_a_dict:
+      self.assertItemsEqual(
+          a.keys(), b.keys(),
+          msg="mismatched keys, expected %s, got %s" % (a.keys(), b.keys()))
+      for k in a:
+        self._assertArrayLikeAllClose(
+            a[k], b[k], rtol=rtol, atol=atol,
+            msg="%s: expected %s, got %s." % (k, a, b))
+    else:
+      self._assertArrayLikeAllClose(a, b, rtol=rtol, atol=atol)
 
   def assertAllCloseAccordingToType(self,
                                     a,

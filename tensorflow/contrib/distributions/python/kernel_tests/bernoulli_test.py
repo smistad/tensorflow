@@ -21,11 +21,11 @@ from __future__ import print_function
 import numpy as np
 import scipy.special
 from tensorflow.contrib.distributions.python.ops import bernoulli
-from tensorflow.contrib.distributions.python.ops import kullback_leibler
 from tensorflow.python.framework import constant_op
 from tensorflow.python.framework import dtypes
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import math_ops
+from tensorflow.python.ops.distributions import kullback_leibler
 from tensorflow.python.platform import test
 
 
@@ -147,6 +147,15 @@ class BernoulliTest(test.TestCase):
           dist.prob(event2).eval({
               p: [0.2, 0.3, 0.4]
           }), [[0.2, 0.7, 0.4]])
+
+  def testPmfInvalid(self):
+    p = [0.1, 0.2, 0.7]
+    with self.test_session():
+      dist = bernoulli.Bernoulli(probs=p, validate_args=True)
+      with self.assertRaisesOpError("must be non-negative."):
+        dist.prob([1, 1, -1]).eval()
+      with self.assertRaisesOpError("is not less than or equal to 1."):
+        dist.prob([2, 0, 1]).eval()
 
   def testPmfWithP(self):
     p = [[0.2, 0.4], [0.3, 0.6]]
@@ -277,7 +286,7 @@ class BernoulliTest(test.TestCase):
       a = bernoulli.Bernoulli(probs=a_p)
       b = bernoulli.Bernoulli(probs=b_p)
 
-      kl = kullback_leibler.kl(a, b)
+      kl = kullback_leibler.kl_divergence(a, b)
       kl_val = sess.run(kl)
 
       kl_expected = (a_p * np.log(a_p / b_p) + (1. - a_p) * np.log(

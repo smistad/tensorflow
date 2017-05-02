@@ -19,6 +19,8 @@ from __future__ import division
 from __future__ import print_function
 
 import collections
+import os
+import sys
 import threading
 import time
 
@@ -193,6 +195,12 @@ class SessionTest(test_util.TensorFlowTestCase):
       self.assertEqual(42.0, res)
       res = sess.run(a.op)  # An op, not a tensor.
       self.assertEqual(None, res)
+      tensor_runner = sess.make_callable(a)
+      res = tensor_runner()
+      self.assertEqual(42.0, res)
+      op_runner = sess.make_callable(a.op)
+      res = op_runner()
+      self.assertEqual(None, res)
 
   def testFetchSingletonByName(self):
     with session.Session() as sess:
@@ -211,12 +219,11 @@ class SessionTest(test_util.TensorFlowTestCase):
       assign = v.assign([63.0])
       res = sess.run([a, b, c, a.name, assign.op])
       self.assertTrue(isinstance(res, list))
-      self.assertEqual(42.0, res[0])
-      self.assertEqual(None, res[1])
-      self.assertEqual(44.0, res[2])
-      self.assertEqual(42.0, res[3])
-      self.assertEqual(None, res[4])
-      self.assertEqual(63.0, sess.run(v))
+      self.assertEqual([42.0, None, 44.0, 42.0, None], res)
+      list_runner = sess.make_callable([a, b, c, a.name, assign.op])
+      res = list_runner()
+      self.assertTrue(isinstance(res, list))
+      self.assertEqual([42.0, None, 44.0, 42.0, None], res)
 
   def testFetchTuple(self):
     with session.Session() as sess:
@@ -225,10 +232,11 @@ class SessionTest(test_util.TensorFlowTestCase):
       c = constant_op.constant(44.0)
       res = sess.run((a, b, c, a.name))
       self.assertTrue(isinstance(res, tuple))
-      self.assertEqual(42.0, res[0])
-      self.assertEqual(None, res[1])
-      self.assertEqual(44.0, res[2])
-      self.assertEqual(42.0, res[3])
+      self.assertEqual((42.0, None, 44.0, 42.0), res)
+      tuple_runner = sess.make_callable((a, b, c, a.name))
+      res = tuple_runner()
+      self.assertTrue(isinstance(res, tuple))
+      self.assertEqual((42.0, None, 44.0, 42.0), res)
 
   def testFetchNamedTuple(self):
     # pylint: disable=invalid-name
@@ -239,6 +247,12 @@ class SessionTest(test_util.TensorFlowTestCase):
       b = control_flow_ops.no_op()  # An op, not a tensor.
       c = constant_op.constant(44.0)
       res = sess.run(ABC(a, b, c))
+      self.assertTrue(isinstance(res, ABC))
+      self.assertEqual(42.0, res.a)
+      self.assertEqual(None, res.b)
+      self.assertEqual(44.0, res.c)
+      namedtuple_runner = sess.make_callable(ABC(a, b, c))
+      res = namedtuple_runner()
       self.assertTrue(isinstance(res, ABC))
       self.assertEqual(42.0, res.a)
       self.assertEqual(None, res.b)
@@ -1181,6 +1195,11 @@ class SessionTest(test_util.TensorFlowTestCase):
           self.assertAllEqual(np_array, out_v)
           self.assertAllEqual(np_array, feed_v)
 
+          feed_fetch_runner = sess.make_callable([out_t, feed_t], [feed_t])
+          out_v, feed_v = feed_fetch_runner(np_array)
+          self.assertAllEqual(np_array, out_v)
+          self.assertAllEqual(np_array, feed_v)
+
   def testFeedError(self):
     with session.Session() as sess:
       feed_t = array_ops.placeholder(dtype=dtypes.float32)
@@ -1404,6 +1423,71 @@ class SessionTest(test_util.TensorFlowTestCase):
     r2 = sess.partial_run(h, [b, c])
     self.assertEqual(r1, r2)
 
+  def runTestPartialRunMissingPlaceholderFeedException(self, sess):
+    x = array_ops.placeholder(dtypes.float32, shape=())
+    fetches = [x * 2, x * 3]
+    handle = sess.partial_run_setup(fetches=fetches, feeds=[])
+    with self.assertRaisesRegexp(errors.InvalidArgumentError,
+                                 'You must feed a value for placeholder'):
+      sess.partial_run(handle, fetches[0])
+
+  def runTestPartialRunUnspecifiedFeed(self, sess):
+    a = array_ops.placeholder(dtypes.float32, shape=[])
+    b = array_ops.placeholder(dtypes.float32, shape=[])
+    c = array_ops.placeholder(dtypes.float32, shape=[])
+    r1 = math_ops.add(a, b)
+
+    h = sess.partial_run_setup([r1], [a, b])
+    with self.assertRaisesRegexp(errors.InvalidArgumentError,
+                                 'was not specified in partial_run_setup.$'):
+      sess.partial_run(h, r1, feed_dict={a: 1, b: 2, c: 3})
+
+  def runTestPartialRunUnspecifiedFetch(self, sess):
+    a = array_ops.placeholder(dtypes.float32, shape=[])
+    b = array_ops.placeholder(dtypes.float32, shape=[])
+    c = array_ops.placeholder(dtypes.float32, shape=[])
+    r1 = math_ops.add(a, b)
+    r2 = math_ops.multiply(a, c)
+
+    h = sess.partial_run_setup([r1], [a, b, c])
+    with self.assertRaisesRegexp(errors.InvalidArgumentError,
+                                 'was not specified in partial_run_setup.$'):
+      sess.partial_run(h, r2, feed_dict={a: 1, c: 3})
+
+  def runTestPartialRunAlreadyFed(self, sess):
+    a = array_ops.placeholder(dtypes.float32, shape=[])
+    b = array_ops.placeholder(dtypes.float32, shape=[])
+    c = array_ops.placeholder(dtypes.float32, shape=[])
+    r1 = math_ops.add(a, b)
+    r2 = math_ops.multiply(a, c)
+
+    h = sess.partial_run_setup([r1, r2], [a, b, c])
+    sess.partial_run(h, r1, feed_dict={a: 1, b: 2})
+    with self.assertRaisesRegexp(errors.InvalidArgumentError,
+                                 'has already been fed.$'):
+      sess.partial_run(h, r2, feed_dict={a: 1, c: 3})
+
+  def runTestPartialRunAlreadyFetched(self, sess):
+    a = array_ops.placeholder(dtypes.float32, shape=[])
+    b = array_ops.placeholder(dtypes.float32, shape=[])
+    c = array_ops.placeholder(dtypes.float32, shape=[])
+    r1 = math_ops.add(a, b)
+    r2 = math_ops.multiply(a, c)
+
+    h = sess.partial_run_setup([r1, r2], [a, b, c])
+    sess.partial_run(h, r1, feed_dict={a: 1, b: 2})
+    with self.assertRaisesRegexp(errors.InvalidArgumentError,
+                                 'has already been fetched.$'):
+      sess.partial_run(h, r1, feed_dict={c: 3})
+
+  def testInvalidPartialRunSetup(self):
+    sess = session.Session()
+    x = array_ops.placeholder(dtypes.float32, shape=[])
+    with self.assertRaisesRegexp(
+        errors.InvalidArgumentError,
+        'specify at least one target to fetch or execute.'):
+      sess.partial_run_setup(fetches=[], feeds=[x])
+
   def testPartialRunDirect(self):
     self.runTestPartialRun(session.Session())
 
@@ -1418,6 +1502,21 @@ class SessionTest(test_util.TensorFlowTestCase):
 
   def testRunAndPartialRunDirect(self):
     self.runTestRunAndPartialRun(session.Session())
+
+  def testPartialRunMissingPlaceholderFeedExceptionDirect(self):
+    self.runTestPartialRunMissingPlaceholderFeedException(session.Session())
+
+  def testPartialRunUnspecifiedFeedDirect(self):
+    self.runTestPartialRunUnspecifiedFeed(session.Session())
+
+  def testPartialRunUnspecifiedFetchDirect(self):
+    self.runTestPartialRunUnspecifiedFetch(session.Session())
+
+  def testPartialRunAlreadyFedDirect(self):
+    self.runTestPartialRunAlreadyFed(session.Session())
+
+  def testPartialRunAlreadyFetchedDirect(self):
+    self.runTestPartialRunAlreadyFetched(session.Session())
 
   def testPartialRunDist(self):
     server = server_lib.Server.create_local_server()
@@ -1438,6 +1537,27 @@ class SessionTest(test_util.TensorFlowTestCase):
   def testRunAndPartialRunDist(self):
     server = server_lib.Server.create_local_server()
     self.runTestRunAndPartialRun(session.Session(server.target))
+
+  def testPartialRunMissingPlaceholderFeedExceptionDist(self):
+    server = server_lib.Server.create_local_server()
+    self.runTestPartialRunMissingPlaceholderFeedException(
+        session.Session(server.target))
+
+  def testPartialRunUnspecifiedFeedDist(self):
+    server = server_lib.Server.create_local_server()
+    self.runTestPartialRunUnspecifiedFeed(session.Session(server.target))
+
+  def testPartialRunUnspecifiedFetchDist(self):
+    server = server_lib.Server.create_local_server()
+    self.runTestPartialRunUnspecifiedFetch(session.Session(server.target))
+
+  def testPartialRunAlreadyFedDist(self):
+    server = server_lib.Server.create_local_server()
+    self.runTestPartialRunAlreadyFed(session.Session(server.target))
+
+  def testPartialRunAlreadyFetchedDist(self):
+    server = server_lib.Server.create_local_server()
+    self.runTestPartialRunAlreadyFetched(session.Session(server.target))
 
   def testFeedDictKeyException(self):
     with session.Session() as sess:
@@ -1623,6 +1743,96 @@ class SessionTest(test_util.TensorFlowTestCase):
       partial_run = sess.partial_run_setup([squared_tensor], [])
       squared_eval = sess.partial_run(partial_run, squared_tensor)
       self.assertAllClose(np2 * np2, squared_eval)
+
+  def testDefaultLogDevicePlacement(self):
+    class CaptureStderr(str):
+      """Class to capture stderr from C++ shared library."""
+
+      def __enter__(self):
+        self._esc = compat.as_str('\b')
+        self._output = compat.as_str('')
+        self._stderr = sys.stderr
+        self._fd = self._stderr.fileno()
+        self._out_pipe, in_pipe = os.pipe()
+        # Save the original io stream.
+        self._dup_fd = os.dup(self._fd)
+        # Replace the original io stream with in pipe.
+        os.dup2(in_pipe, self._fd)
+        return self
+
+      def __exit__(self, *args):
+        self._stderr.write(self._esc)
+        self._stderr.flush()
+        self.read()
+        os.close(self._out_pipe)
+        # Restore the original io stream.
+        os.dup2(self._dup_fd, self._fd)
+
+      def read(self):
+        while True:
+          data = os.read(self._out_pipe, 1)
+          if not data or compat.as_str(data) == self._esc:
+            break
+          self._output += compat.as_str(data)
+
+      def __str__(self):
+        return self._output
+
+    # Passing the config to the server, but not the session should still result
+    # in logging device placement.
+    config = config_pb2.ConfigProto(log_device_placement=True)
+    server = server_lib.Server.create_local_server(config=config)
+    a = constant_op.constant(1)
+    b = constant_op.constant(2)
+    c = a + b
+    with session.Session(server.target) as sess:
+      with CaptureStderr() as log:
+        sess.run(c)
+      # Ensure that we did log device placement.
+      self.assertTrue('/job:local/replica:0/task:0/cpu:0' in str(log))
+
+  def testLocalMasterSessionTimeout(self):
+    # Test that the timeout passed in a config to the session works correctly.
+    config = config_pb2.ConfigProto(operation_timeout_in_ms=1000)
+    server = server_lib.Server.create_local_server()
+    q = data_flow_ops.FIFOQueue(1, dtypes.float32)
+    dequeued_t = q.dequeue()
+
+    with session.Session(server.target, config=config) as sess:
+      # Intentionally do not run any enqueue_ops so that dequeue will block
+      # until operation_timeout_in_ms.
+      with self.assertRaises(errors.DeadlineExceededError):
+        sess.run(dequeued_t)
+
+  def testDefaultServerTimeout(self):
+    # Test that the default server config timeout gets used when no Session
+    # config is provided.
+    config = config_pb2.ConfigProto(operation_timeout_in_ms=1000)
+    server = server_lib.Server.create_local_server(config=config)
+    q = data_flow_ops.FIFOQueue(1, dtypes.float32)
+    dequeued_t = q.dequeue()
+
+    with session.Session(server.target) as sess:
+      # Intentionally do not run any enqueue_ops so that dequeue will block
+      # until operation_timeout_in_ms.
+      with self.assertRaises(errors.DeadlineExceededError):
+        sess.run(dequeued_t)
+
+  def runTestBuildGraphError(self, sess):
+    # Ensure that errors from building the graph get propagated.
+    data = array_ops.placeholder(dtypes.float32, shape=[])
+    enter_1 = control_flow_ops.enter(data, 'foo_1', False)
+    enter_2 = control_flow_ops.enter(data, 'foo_2', False)
+    res = math_ops.add(enter_1, enter_2)
+    with self.assertRaisesOpError('has inputs from different frames'):
+      sess.run(res, feed_dict={data: 1.0})
+
+  def testBuildGraphErrorDirect(self):
+    self.runTestBuildGraphError(session.Session())
+
+  def testBuildGraphErrorDist(self):
+    server = server_lib.Server.create_local_server()
+    self.runTestBuildGraphError(session.Session(server.target))
 
 
 if __name__ == '__main__':

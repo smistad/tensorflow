@@ -18,6 +18,7 @@ limitations under the License.
 #include <vector>
 
 #include "tensorflow/core/common_runtime/constant_folding.h"
+#include "tensorflow/core/common_runtime/debugger_state_interface.h"
 #include "tensorflow/core/common_runtime/device.h"
 #include "tensorflow/core/common_runtime/device_mgr.h"
 #include "tensorflow/core/common_runtime/function.h"
@@ -41,11 +42,22 @@ limitations under the License.
 #include "tensorflow/core/platform/mutex.h"
 #include "tensorflow/core/platform/types.h"
 #include "tensorflow/core/protobuf/worker.pb.h"
+#include "tensorflow/core/util/env_var.h"
 
 namespace tensorflow {
 
-GraphMgr::GraphMgr(const WorkerEnv* worker_env)
-    : worker_env_(worker_env), table_(5) {}
+GraphMgr::GraphMgr(const WorkerEnv* worker_env,
+                   RendezvousMgrInterface* rendezvous_mgr)
+    : worker_env_(worker_env), rendezvous_mgr_(rendezvous_mgr), table_(5) {
+  CHECK(rendezvous_mgr) << "Rendezvous mgr was null";
+  // The default value of sync_on_finish will be flipped soon and this
+  // environment variable will be removed as well.
+  Status status =
+      ReadBoolFromEnvVar("TF_SYNC_ON_FINISH", true, &sync_on_finish_);
+  if (!status.ok()) {
+    LOG(ERROR) << status.error_message();
+  }
+}
 
 GraphMgr::~GraphMgr() {
   for (auto p : table_) p.second->Unref();
@@ -83,6 +95,16 @@ static Status ValidateGraphDefForDevices(const GraphDef& gdef) {
   return Status::OK();
 }
 
+Status GraphMgr::DecorateAndPublishGraphForDebug(
+    const DebugOptions& debug_options, Graph* graph, Device* device) {
+  std::unique_ptr<DebugGraphDecoratorInterface> decorator;
+  TF_RETURN_IF_ERROR(
+      DebugGraphDecoratorRegistry::CreateDecorator(debug_options, &decorator));
+  TF_RETURN_IF_ERROR(decorator->DecorateGraph(graph, device));
+  TF_RETURN_IF_ERROR(decorator->PublishGraph(*graph));
+  return Status::OK();
+}
+
 // Creates executors given a graph definition "gdef" of a "session".
 // If a node in "gdef" is shared by other graphs in "session", the
 // same op kernel is reused. E.g., typically a params node is shared
@@ -95,7 +117,8 @@ static Status ValidateGraphDefForDevices(const GraphDef& gdef) {
 // "executors" are filled with one executor per device if success and
 // the caller takes the ownership of returned executors.
 Status GraphMgr::InitItem(const string& session, const GraphDef& gdef,
-                          const GraphOptions& graph_options, Item* item) {
+                          const GraphOptions& graph_options,
+                          const DebugOptions& debug_options, Item* item) {
   item->session = session;
   item->lib_def =
       new FunctionLibraryDefinition(OpRegistry::Global(), gdef.library());
@@ -109,7 +132,7 @@ Status GraphMgr::InitItem(const string& session, const GraphDef& gdef,
   }
 
   // Constructs the graph out of "gdef".
-  Graph graph(item->lib_def);
+  Graph graph(OpRegistry::Global());
   GraphConstructorOptions opts;
   opts.allow_internal_ops = true;
   opts.expect_device_spec = true;
@@ -141,7 +164,7 @@ Status GraphMgr::InitItem(const string& session, const GraphDef& gdef,
 
   std::unordered_map<string, std::unique_ptr<Graph>> partition_graphs;
   for (const auto& partition : partitions) {
-    std::unique_ptr<Graph> device_graph(new Graph(item->lib_def));
+    std::unique_ptr<Graph> device_graph(new Graph(OpRegistry::Global()));
     GraphConstructorOptions device_opts;
     // There are internal operations (e.g., send/recv) that we now allow.
     device_opts.allow_internal_ops = true;
@@ -221,6 +244,13 @@ Status GraphMgr::InitItem(const string& session, const GraphDef& gdef,
     };
 
     optimizer.Optimize(lib, worker_env_->env, params.device, &subgraph);
+
+    // EXPERIMENTAL: tfdbg inserts debug nodes (i.e., probes) to the graph.
+    if (!debug_options.debug_tensor_watch_opts().empty()) {
+      TF_RETURN_IF_ERROR(DecorateAndPublishGraphForDebug(
+          debug_options, subgraph.get(), params.device));
+    }
+
     TF_RETURN_IF_ERROR(
         EnsureMemoryTypes(DeviceType(unit->device->device_type()),
                           unit->device->name(), subgraph.get()));
@@ -236,9 +266,10 @@ Status GraphMgr::InitItem(const string& session, const GraphDef& gdef,
 }
 
 Status GraphMgr::Register(const string& session, const GraphDef& gdef,
-                          const GraphOptions& graph_options, string* handle) {
+                          const GraphOptions& graph_options,
+                          const DebugOptions& debug_options, string* handle) {
   Item* item = new Item;
-  Status s = InitItem(session, gdef, graph_options, item);
+  Status s = InitItem(session, gdef, graph_options, debug_options, item);
   if (!s.ok()) {
     item->Unref();
     return s;
@@ -372,9 +403,7 @@ void GraphMgr::RecvOutputsFromRendezvousAsync(Rendezvous* rendezvous,
             }
           }
           call_state->mu.lock();
-          if (status.ok()) {
-            call_state->shared_status = status;
-          }
+          call_state->shared_status.Update(status);
           call_state->done_counter--;
           // If we are the last async call to return, call the done callback.
           if (call_state->done_counter == 0) {
@@ -390,14 +419,14 @@ void GraphMgr::RecvOutputsFromRendezvousAsync(Rendezvous* rendezvous,
 }
 
 Status GraphMgr::SendInputs(const int64 step_id, const NamedTensors& in) {
-  Rendezvous* rendezvous = worker_env_->rendezvous_mgr->Find(step_id);
+  Rendezvous* rendezvous = rendezvous_mgr_->Find(step_id);
   Status s = SendInputsToRendezvous(rendezvous, in);
   rendezvous->Unref();
   return s;
 }
 
 Status GraphMgr::RecvOutputs(const int64 step_id, NamedTensors* out) {
-  Rendezvous* rendezvous = worker_env_->rendezvous_mgr->Find(step_id);
+  Rendezvous* rendezvous = rendezvous_mgr_->Find(step_id);
   Status s = RecvOutputsFromRendezvous(rendezvous, out);
   rendezvous->Unref();
   return s;
@@ -405,7 +434,7 @@ Status GraphMgr::RecvOutputs(const int64 step_id, NamedTensors* out) {
 
 void GraphMgr::RecvOutputsAsync(const int64 step_id, NamedTensors* out,
                                 StatusCallback done) {
-  Rendezvous* rendezvous = worker_env_->rendezvous_mgr->Find(step_id);
+  Rendezvous* rendezvous = rendezvous_mgr_->Find(step_id);
   RecvOutputsFromRendezvousAsync(rendezvous, out,
                                  [done, rendezvous](const Status s) {
                                    rendezvous->Unref();
@@ -435,7 +464,7 @@ void GraphMgr::ExecuteAsync(const string& handle, const int64 step_id,
     return;
   }
 
-  Rendezvous* rendezvous = worker_env_->rendezvous_mgr->Find(step_id);
+  Rendezvous* rendezvous = rendezvous_mgr_->Find(step_id);
 
   // Sends values specified by the caller.
   Status s = SendInputsToRendezvous(rendezvous, in);
@@ -485,7 +514,7 @@ void GraphMgr::StartParallelExecutors(const string& handle, int64 step_id,
   args.cancellation_manager = cancellation_manager;
   args.stats_collector = collector;
   args.step_container = step_container;
-  args.sync_on_finish = true;
+  args.sync_on_finish = sync_on_finish_;
   if (LogMemory::IsEnabled()) {
     LogMemory::RecordStep(args.step_id, handle);
   }

@@ -26,6 +26,7 @@ namespace grappler {
 Status GraphProperties::InferStatically() {
   Graph graph(OpRegistry::Global());
   ShapeRefiner shape_refiner(graph.versions().producer(), graph.op_registry());
+  shape_refiner.set_require_shape_inference_fns(false);
   ImportGraphDefOptions options;
   Status s = ImportGraphDef(options, item_.graph, &graph, &shape_refiner);
   TF_RETURN_IF_ERROR(s);
@@ -96,6 +97,7 @@ Status GraphProperties::InferDynamically(Cluster* cluster) {
       cluster->Run(item_.graph, item_.feed, item_.fetch, &metadata));
 
   std::unordered_map<string, const CostGraphDef::Node*> name_to_cost;
+  std::unordered_map<string, const NodeDef*> name_to_node;  // Empty
   for (auto& node : metadata.cost_graph().node()) {
     name_to_cost[node.name()] = &node;
 
@@ -119,7 +121,7 @@ Status GraphProperties::InferDynamically(Cluster* cluster) {
       continue;
     }
     std::vector<OpInfo::TensorProperties> inputs =
-        FindInputFeatures(node, name_to_cost);
+        FindInputFeatures(node, name_to_cost, name_to_node);
 
     input_properties_[node.name()] = inputs;
 

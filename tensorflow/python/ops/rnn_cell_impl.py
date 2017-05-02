@@ -13,7 +13,12 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Module implementing RNN Cells."""
+"""Module implementing RNN Cells.
+
+This module contains the abstract definition of a RNN cell: `_RNNCell`.
+Actual implementations of various types of RNN cells are located in
+`tensorflow.contrib`.
+"""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -21,6 +26,7 @@ from __future__ import print_function
 
 from tensorflow.python.framework import ops
 from tensorflow.python.framework import tensor_shape
+from tensorflow.python.layers import base as base_layer
 from tensorflow.python.ops import array_ops
 from tensorflow.python.util import nest
 
@@ -69,13 +75,15 @@ def _zero_state_tensors(state_size, batch_size, dtype):
   return zeros
 
 
-class _RNNCell(object):
+class _RNNCell(base_layer.Layer):  # pylint: disable=protected-access
   """Abstract object representing an RNN cell.
 
-  The definition of cell in this package differs from the definition used in the
-  literature. In the literature, cell refers to an object with a single scalar
-  output. The definition in this package refers to a horizontal array of such
-  units.
+  Every `RNNCell` must have the properties below and implement `__call__` with
+  the following signature.
+
+  This definition of cell differs from the definition used in the literature.
+  In the literature, 'cell' refers to an object with a single scalar output.
+  This definition refers to a horizontal array of such units.
 
   An RNN cell, in the most abstract setting, is anything that has
   a state and performs some operation that takes a matrix of inputs.
@@ -84,13 +92,6 @@ class _RNNCell(object):
   state matrix with `self.state_size` columns.  If `self.state_size` is a
   tuple of integers, then it results in a tuple of `len(state_size)` state
   matrices, each with a column size corresponding to values in `state_size`.
-
-  This module provides a number of basic commonly used RNN cells, such as
-  LSTM (Long Short Term Memory) or GRU (Gated Recurrent Unit), and a number
-  of operators that allow add dropouts, projections, or embeddings for inputs.
-  Constructing multi-layer cells is supported by the class `MultiRNNCell`,
-  or by calling the `rnn` ops several times. Every `RNNCell` must have the
-  properties below and implement `__call__` with the following signature.
   """
 
   def __call__(self, inputs, state, scope=None):
@@ -111,7 +112,7 @@ class _RNNCell(object):
       - New state: Either a single `2-D` tensor, or a tuple of tensors matching
         the arity and shapes of `state`.
     """
-    raise NotImplementedError("Abstract method")
+    return super(_RNNCell, self).__call__(inputs, state, scope=scope)
 
   @property
   def state_size(self):
@@ -140,7 +141,7 @@ class _RNNCell(object):
 
       If `state_size` is a nested list or tuple, then the return value is
       a nested list or tuple (of the same structure) of `2-D` tensors with
-    the shapes `[batch_size x s]` for each s in `state_size`.
+      the shapes `[batch_size x s]` for each s in `state_size`.
     """
     with ops.name_scope(type(self).__name__ + "ZeroState", values=[batch_size]):
       state_size = self.state_size

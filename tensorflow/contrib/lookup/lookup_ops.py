@@ -332,11 +332,12 @@ class TextFileInitializer(TableInitializerBase):
 
   The key and value content to get from each line is specified by
   the `key_index` and `value_index`.
-    - TextFileIndex.LINE_NUMBER means use the line number starting from zero,
-      expects data type int64.
-    - TextFileIndex.WHOLE_LINE means use the whole line content, expects data
-      type string.
-    - A value >=0 means use the index (starting at zero) of the split line based
+
+  * `TextFileIndex.LINE_NUMBER` means use the line number starting from zero,
+    expects data type int64.
+  * `TextFileIndex.WHOLE_LINE` means use the whole line content, expects data
+    type string.
+  * A value `>=0` means use the index (starting at zero) of the split line based
       on `delimiter`.
 
   For example if we have a file with the following content:
@@ -349,9 +350,10 @@ class TextFileInitializer(TableInitializerBase):
 
   The following snippet initializes a table with the first column as keys and
   second column as values:
-  - emerson -> 10
-  - lake -> 20
-  - palmer -> 30
+
+  * `emerson -> 10`
+  * `lake -> 20`
+  * `palmer -> 30`
 
   ```python
   table = tf.contrib.lookup.HashTable(tf.contrib.lookup.TextFileInitializer(
@@ -361,9 +363,10 @@ class TextFileInitializer(TableInitializerBase):
   ```
 
   Similarly to initialize the whole line as keys and the line number as values.
-  - emerson 10 -> 0
-  - lake 20 -> 1
-  - palmer 30 -> 2
+
+  * `emerson 10 -> 0`
+  * `lake 20 -> 1`
+  * `palmer 30 -> 2`
 
   ```python
   table = tf.contrib.lookup.HashTable(tf.contrib.lookup.TextFileInitializer(
@@ -879,7 +882,7 @@ def index_table_from_file(vocabulary_file=None,
     name: A name for this op (optional).
 
   Returns:
-    The lookup table to map a string `Tensor` to index `int64` `Tensor`.
+    The lookup table to map a `key_dtype` `Tensor` to index `int64` `Tensor`.
 
   Raises:
     ValueError: If `vocabulary_file` is not set.

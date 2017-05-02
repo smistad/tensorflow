@@ -1,6 +1,7 @@
 <div align="center">
   <img src="https://www.tensorflow.org/images/tf_logo_transp.png"><br><br>
 </div>
+
 -----------------
 
 | **`Linux CPU`** | **`Linux GPU`** | **`Mac OS CPU`** | **`Windows CPU`** | **`Android`** |
@@ -25,7 +26,7 @@ guidelines](CONTRIBUTING.md).**
 
 **We use [GitHub issues](https://github.com/tensorflow/tensorflow/issues) for
 tracking requests and bugs, but please see
-[Community](tensorflow/docs_src/about/index.md#community) for general questions
+[Community](https://www.tensorflow.org/community/) for general questions
 and discussion.**
 
 ## Installation
@@ -51,7 +52,7 @@ $ python
 >>> hello = tf.constant('Hello, TensorFlow!')
 >>> sess = tf.Session()
 >>> sess.run(hello)
-Hello, TensorFlow!
+'Hello, TensorFlow!'
 >>> a = tf.constant(10)
 >>> b = tf.constant(32)
 >>> sess.run(a+b)
@@ -61,9 +62,9 @@ Hello, TensorFlow!
 
 ## For more information
 
-* [TensorFlow website](http://tensorflow.org)
+* [TensorFlow website](https://tensorflow.org)
 * [TensorFlow whitepaper](http://download.tensorflow.org/paper/whitepaper2015.pdf)
 * [TensorFlow Model Zoo](https://github.com/tensorflow/models)
 * [TensorFlow MOOC on Udacity](https://www.udacity.com/course/deep-learning--ud730)
 
-The TensorFlow community has created amazing things with TensorFlow, please see the [resources section of tensorflow.org](https://www.tensorflow.org/versions/master/resources#community) for an incomplete list.
+The TensorFlow community has created amazing things with TensorFlow, please see the [resources section of tensorflow.org](https://www.tensorflow.org/about/#community) for an incomplete list.
