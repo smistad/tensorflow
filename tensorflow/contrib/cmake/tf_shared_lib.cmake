@@ -92,3 +92,50 @@ endif()
 if(WIN32)
   add_dependencies(tensorflow tensorflow_static)
 endif(WIN32)
+
+# Install all files needed to use this shared library in another application
+# 1) Library
+install(
+    TARGETS
+    tensorflow
+    DESTINATION lib
+)
+
+# 2) TF headers
+install(
+    DIRECTORY
+    ${tensorflow_source_dir}/tensorflow/ # Regular headers
+    ${CMAKE_CURRENT_BINARY_DIR}/tensorflow/ # Protobuf generated headers
+    DESTINATION include/tensorflow
+    FILES_MATCHING PATTERN "*.h"
+)
+
+# 3) Third party headers
+install(
+    DIRECTORY
+    ${tensorflow_source_dir}/third_party/
+    DESTINATION include/third_party/
+    PATTERN "*BUILD" EXCLUDE
+)
+
+install(
+    DIRECTORY ${PROTOBUF_INCLUDE_DIRS}/google/
+    DESTINATION include/google/
+    FILES_MATCHING PATTERN "*.h"
+)
+
+# 5) Write a cmake config file, listing all libraries and include dirs
+install(
+    CODE "
+    set(CONF_INCLUDE_DIRS \"${CMAKE_INSTALL_PREFIX}/include/\")
+    file(GLOB CONF_LIBRARY \"${CMAKE_INSTALL_PREFIX}/lib/*tensorflow.*\")
+    file(GLOB CONF_LIBRARIES \"${CMAKE_INSTALL_PREFIX}/lib/*\")
+    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/TensorflowConfig.cmake.in \"${PROJECT_BINARY_DIR}/TensorflowConfig.cmake\" @ONLY)
+    "
+)
+
+install(
+    FILES
+    "${PROJECT_BINARY_DIR}/TensorflowConfig.cmake"
+    DESTINATION cmake
+)
