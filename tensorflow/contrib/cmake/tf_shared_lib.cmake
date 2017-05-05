@@ -91,7 +91,9 @@ endif(WIN32)
 install(
     TARGETS
     tensorflow
-    DESTINATION lib
+    RUNTIME DESTINATION bin
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib
 )
 
 # 2) TF headers
@@ -116,6 +118,16 @@ install(
     DESTINATION include/google/
     FILES_MATCHING PATTERN "*.h"
 )
+
+# 4) External libraries
+if(WIN32)
+    # For windows, we also need the protobof library, or we will get an unresolved external symbol error
+    install(
+        FILES
+        ${protobuf_STATIC_LIBRARIES}
+        DESTINATION lib
+    )
+endif(WIN32)
 
 # 5) Write a cmake config file, listing all libraries and include dirs
 install(
