@@ -14,6 +14,7 @@
 # ==============================================================================
 """Bijector Ops.
 
+@@AbsoluteValue
 @@Affine
 @@AffineLinearOperator
 @@Bijector
@@ -27,8 +28,10 @@
 @@PowerTransform
 @@Sigmoid
 @@SigmoidCentered
+@@SinhArcsinh
 @@SoftmaxCentered
 @@Softplus
+@@Weibull
 """
 
 from __future__ import absolute_import
@@ -37,21 +40,23 @@ from __future__ import print_function
 
 # pylint: disable=unused-import,wildcard-import,line-too-long,g-importing-member
 
+from tensorflow.contrib.distributions.python.ops.bijectors.absolute_value import *
 from tensorflow.contrib.distributions.python.ops.bijectors.affine import *
 from tensorflow.contrib.distributions.python.ops.bijectors.affine_linear_operator import *
 from tensorflow.contrib.distributions.python.ops.bijectors.chain import *
 from tensorflow.contrib.distributions.python.ops.bijectors.cholesky_outer_product import *
 from tensorflow.contrib.distributions.python.ops.bijectors.conditional_bijector import *
 from tensorflow.contrib.distributions.python.ops.bijectors.exp import *
-from tensorflow.contrib.distributions.python.ops.bijectors.identity import *
 from tensorflow.contrib.distributions.python.ops.bijectors.inline import *
 from tensorflow.contrib.distributions.python.ops.bijectors.invert import *
 from tensorflow.contrib.distributions.python.ops.bijectors.power_transform import *
 from tensorflow.contrib.distributions.python.ops.bijectors.sigmoid import *
 from tensorflow.contrib.distributions.python.ops.bijectors.sigmoid_centered import *
+from tensorflow.contrib.distributions.python.ops.bijectors.sinh_arcsinh import *
 from tensorflow.contrib.distributions.python.ops.bijectors.softmax_centered import *
 from tensorflow.contrib.distributions.python.ops.bijectors.softplus import *
 from tensorflow.python.ops.distributions.bijector import *
+from tensorflow.python.ops.distributions.identity_bijector import Identity
 
 # pylint: enable=unused-import,wildcard-import,line-too-long,g-importing-member
 

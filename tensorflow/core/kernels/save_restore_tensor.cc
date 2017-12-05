@@ -15,6 +15,7 @@ limitations under the License.
 
 #include <unordered_map>
 
+#include <utility>
 #include <vector>
 #include "tensorflow/core/kernels/save_restore_tensor.h"
 
@@ -79,7 +80,7 @@ void SaveTensors(
   VLOG(1) << "About to save tensors to file " << filename_t.flat<string>()(0)
           << "...";
   checkpoint::TensorSliceWriter writer(filename_t.flat<string>()(0),
-                                       builder_func);
+                                       std::move(builder_func));
 
   Status s;
   auto tensor_names_flat = tensor_names_t.flat<string>();
@@ -215,9 +216,12 @@ void RestoreTensor(OpKernelContext* context,
 
   if (output_shape.num_elements() == 0) return;
 
-#define READER_COPY(T)                                                      \
-  case DataTypeToEnum<T>::value:                                            \
-    reader->CopySliceData(tensor_name, slice_to_load, t->flat<T>().data()); \
+#define READER_COPY(T)                                                \
+  case DataTypeToEnum<T>::value:                                      \
+    OP_REQUIRES(context,                                              \
+                reader->CopySliceData(tensor_name, slice_to_load,     \
+                                      t->flat<T>().data()),           \
+                errors::InvalidArgument("Error copying slice data")); \
     break;
 
   switch (type) {

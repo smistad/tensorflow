@@ -40,7 +40,7 @@ TensorFlow coding style.
 * Include unit tests when you contribute new features, as they help to
   a) prove that your code works correctly, b) guard against future breaking
   changes to lower the maintenance cost.
-* Bug fixes also generally require unit tests, because the presense of bugs
+* Bug fixes also generally require unit tests, because the presence of bugs
   usually indicates insufficient test coverage.
 * Keep API compatibility in mind when you change code in core TensorFlow,
   e.g., code in [tensorflow/core](https://github.com/tensorflow/tensorflow/tree/master/tensorflow/core) and  [tensorflow/python](https://github.com/tensorflow/tensorflow/tree/master/tensorflow/python).
@@ -159,7 +159,12 @@ There are two ways to run TensorFlow unit tests.
    bazel test ${flags} //tensorflow/python/...
    ```
 
-2. Using Docker and TensorFlow's CI scripts.
+2. Using [Docker](www.docker.com) and TensorFlow's CI scripts.
+
+   ```bash
+   # Install Docker first, then this will build and run cpu tests
+   tensorflow/tools/ci_build/ci_build.sh CPU bazel test //tensorflow/...
+   ```
 
    See
    [TensorFlow Builds](https://github.com/tensorflow/tensorflow/tree/master/tensorflow/tools/ci_build) for details.

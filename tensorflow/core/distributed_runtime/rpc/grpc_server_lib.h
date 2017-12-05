@@ -37,15 +37,17 @@ class GrpcWorker;
 class Master;
 
 // function that creates a RendezvousMgr.
-typedef std::function<RendezvousMgrInterface*(
-    const WorkerEnv*, const std::string& worker_name,
-    WorkerCacheInterface* worker_cache)>
+typedef std::function<RendezvousMgrInterface*(const WorkerEnv*)>
     RendezvousMgrCreationFunction;
 
 // function that registers a service to the server. The service needs to
 // be registered before builder.BuildAndStart().
 typedef std::function<void(const WorkerEnv*, ::grpc::ServerBuilder*)>
     ServiceInitFunction;
+
+// function that creates a grpc based worker implementation.
+typedef std::function<std::unique_ptr<GrpcWorker>(WorkerEnv*)>
+    WorkerCreationFunction;
 
 class GrpcServer : public ServerInterface {
  protected:
@@ -67,7 +69,11 @@ class GrpcServer : public ServerInterface {
 
  protected:
   Status Init(ServiceInitFunction service_func,
-              RendezvousMgrCreationFunction rendezvous_mgr_func);
+              const RendezvousMgrCreationFunction& rendezvous_mgr_func,
+              const WorkerCreationFunction& worker_func);
+
+  Status Init(ServiceInitFunction service_func,
+              const RendezvousMgrCreationFunction& rendezvous_mgr_func);
 
   Status Init();
 
@@ -75,17 +81,16 @@ class GrpcServer : public ServerInterface {
   virtual std::shared_ptr<::grpc::ServerCredentials> GetServerCredentials(
       const ServerDef& server_def) const;
 
-  virtual ChannelCreationFunction GetChannelCreationFunction(
-      const ServerDef& server_def) const;
+  virtual ChannelCreationFunction GetChannelCreationFunction() const;
 
   virtual std::unique_ptr<Master> CreateMaster(MasterEnv* master_env);
 
   // Creates a WorkerCacheInterface for a session.
-  Status WorkerCacheFactory(const ServerDef& server_def,
+  Status WorkerCacheFactory(const WorkerCacheFactoryOptions& options,
                             WorkerCacheInterface** worker_cache);
 
-  // Parses a ServerDef into a GrpcChannelSpec.
-  Status ParseChannelSpec(const ServerDef& server_def,
+  // Parses a WorkerCacheFactoryOptions into a GrpcChannelSpec.
+  Status ParseChannelSpec(const WorkerCacheFactoryOptions& options,
                           GrpcChannelSpec* channel_spec);
 
   // Returns the port to which this server is bound.

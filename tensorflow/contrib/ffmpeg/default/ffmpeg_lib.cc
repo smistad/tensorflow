@@ -69,9 +69,8 @@ bool IsBinaryInstalled(const string& binary_name) {
   for (const string& dir : str_util::Split(path, ':')) {
     const string binary_path = io::JoinPath(dir, binary_name);
     char absolute_path[PATH_MAX + 1];
-    if (::realpath(binary_path.c_str(), absolute_path) == NULL) {
-      LOG(ERROR) << "Invalid binary path: " << binary_path;
-      return false;
+    if (::realpath(binary_path.c_str(), absolute_path) == nullptr) {
+      continue;
     }
     struct stat statinfo;
     int result = ::stat(absolute_path, &statinfo);
@@ -209,7 +208,15 @@ string GetTempFilename(const string& extension) {
     }
     struct stat statbuf;
     if (!stat(dir, &statbuf) && S_ISDIR(statbuf.st_mode)) {
-      return io::JoinPath(dir, StrCat("tmp_file_", getpid(), ".", extension));
+      string tmp_filepath =
+          io::JoinPath(dir, StrCat("tmp_file_XXXXXX", ".", extension));
+      int fd = mkstemps(&tmp_filepath[0], extension.length() + 1);
+      if (fd < 0) {
+        LOG(FATAL) << "Failed to create temp file.";
+      } else {
+        close(fd);
+        return tmp_filepath;
+      }
     }
   }
   LOG(FATAL) << "No temp directory found.";

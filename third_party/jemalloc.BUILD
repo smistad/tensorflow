@@ -8,7 +8,14 @@ exports_files(["COPYING"])
 load("@%ws%//third_party:common.bzl", "template_rule")
 
 cc_library(
-    name = "jemalloc",
+    name = "jemalloc_headers",
+    hdrs = ["include/jemalloc/jemalloc.h"],
+    includes = ["include"],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "jemalloc_impl",
     srcs = [
         "src/arena.c",
         "src/atomic.c",
@@ -79,7 +86,6 @@ cc_library(
         "include/jemalloc/internal/util.h",
         "include/jemalloc/internal/valgrind.h",
         "include/jemalloc/internal/witness.h",
-        "include/jemalloc/jemalloc.h",
     ],
     # Same flags that jemalloc uses to build.
     copts = [
@@ -94,10 +100,14 @@ cc_library(
         "@%ws%//tensorflow:linux_ppc64le": [
             "-lpthread",
         ],
+        "@%ws%//tensorflow:linux_x86_64": [
+            "-lpthread",
+        ],
         "//conditions:default": [
         ],
     }),
     visibility = ["//visibility:public"],
+    deps = [":jemalloc_headers"],
 )
 
 sh_binary(

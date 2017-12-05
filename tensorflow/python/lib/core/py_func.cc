@@ -17,8 +17,8 @@ limitations under the License.
 
 #include <array>
 
-#include <Python.h>
 #include "numpy/arrayobject.h"
+#include "tensorflow/core/framework/allocation_description.pb.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/core/threadpool.h"
@@ -27,6 +27,7 @@ limitations under the License.
 #include "tensorflow/core/platform/mutex.h"
 #include "tensorflow/core/platform/types.h"
 #include "tensorflow/python/lib/core/ndarray_tensor_bridge.h"
+#include <Python.h>
 
 namespace tensorflow {
 namespace {
@@ -78,6 +79,9 @@ Status MakeArgTuple(PyCall* call, PyObject** tuple) {
 // module.
 Status NumericNpDTypeToTfDType(const int np, DataType* tf) {
   switch (np) {
+    case NPY_FLOAT16:
+      *tf = DT_HALF;
+      break;
     case NPY_FLOAT32:
       *tf = DT_FLOAT;
       break;
@@ -261,7 +265,7 @@ class NumpyTensorBuffer : public TensorBuffer {
     proto->set_requested_bytes(rb);
     proto->set_allocator_name(tensorflow::cpu_allocator()->Name());
   }
-  Tensor MakeTensor(DataType dtype, TensorShape shape) {
+  Tensor MakeTensor(DataType dtype, const TensorShape& shape) {
     CHECK_EQ(len_, shape.num_elements() * DataTypeSize(dtype));
     return Tensor(dtype, shape, this);
   }
@@ -347,6 +351,7 @@ Status ConvertTensorToNdarray(const Tensor& t, PyObject** ret) {
   PyArray_Descr* descr = PyArray_DescrFromType(typenum);
   CHECK(descr);
   std::vector<npy_intp> dims;
+  dims.reserve(t.dims());
   for (int i = 0; i < t.dims(); ++i) {
     dims.push_back(t.dim_size(i));
   }

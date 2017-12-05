@@ -17,6 +17,8 @@ limitations under the License.
 
 #include "tensorflow/contrib/verbs/verbs_server_lib.h"
 
+#include "grpc/support/alloc.h"
+
 #include "tensorflow/contrib/verbs/rdma_mgr.h"
 #include "tensorflow/contrib/verbs/rdma_rendezvous_mgr.h"
 #include "tensorflow/core/distributed_runtime/server_lib.h"
@@ -27,10 +29,8 @@ namespace tensorflow {
 
 namespace {
 // static utility function
-RendezvousMgrInterface* NewRdmaRendezvousMgr(
-    const WorkerEnv* env, const string& worker_name,
-    WorkerCacheInterface* worker_cache) {
-  return new RdmaRendezvousMgr(env, worker_name, worker_cache);
+RendezvousMgrInterface* NewRdmaRendezvousMgr(const WorkerEnv* env) {
+  return new RdmaRendezvousMgr(env);
 }
 
 }  // namespace
@@ -56,7 +56,7 @@ Status VerbsServer::ChannelCacheFactory(const ServerDef& server_def,
   TF_RETURN_IF_ERROR(ParseChannelSpec(server_def, &channel_spec));
 
   *channel_cache =
-      NewGrpcChannelCache(channel_spec, GetChannelCreationFunction(server_def));
+      NewGrpcChannelCache(channel_spec, GetChannelCreationFunction());
 
   const string host_port = (*channel_cache)->TranslateTask(name_prefix);
   int requested_port;
@@ -86,11 +86,7 @@ Status VerbsServer::Init(ServiceInitFunction service_func,
     rdma_mgr_ = new RdmaMgr(worker_env(), channel_cache_);
     // set rdma_mgr for verbs_service and rdma_rendezvous_mgr
     verbs_service_->SetRdmaMgr(rdma_mgr_);
-    // hardcoded to default session (legacy_session_)
-    // TODO: use WorkerSessionForSession
-    // need to pass in session handle
-    dynamic_cast<RdmaRendezvousMgr*>(
-        worker_env()->session_mgr->LegacySession()->rendezvous_mgr.get())
+    dynamic_cast<RdmaRendezvousMgr*>(worker_env()->rendezvous_mgr)
         ->SetRdmaMgr(rdma_mgr_);
   }
   return s;

@@ -18,6 +18,7 @@
 See the @{$python/control_flow_ops} guide.
 
 @@identity
+@@identity_n
 @@tuple
 @@group
 @@no_op
@@ -50,15 +51,19 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import collections
+
 import six
 from six.moves import xrange  # pylint: disable=redefined-builtin
 
 from tensorflow.core.protobuf import control_flow_pb2
+from tensorflow.python.eager import context
 from tensorflow.python.framework import constant_op
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
 from tensorflow.python.framework import sparse_tensor
 from tensorflow.python.framework import tensor_shape
+from tensorflow.python.framework import tensor_util
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import gen_array_ops
 from tensorflow.python.ops import gen_control_flow_ops
@@ -276,7 +281,7 @@ def exit(data, name=None):
 def switch(data, pred, dtype=None, name=None):
   """Forwards `data` to an output determined by `pred`.
 
-  If `pred` is false, the `data` input is forwared to the first output.
+  If `pred` is false, the `data` input is forwarded to the first output.
   Otherwise, the data goes to the second output.
 
   This op handles `Tensor`s and `IndexedSlices`.
@@ -324,7 +329,7 @@ def switch(data, pred, dtype=None, name=None):
 def _SwitchRefOrTensor(data, pred, name="Switch"):
   """Forwards `data` to an output determined by `pred`.
 
-  If `pred` is false, the `data` input is forwared to the first output.
+  If `pred` is false, the `data` input is forwarded to the first output.
   Otherwise, the data goes to the second output.
 
   This op handles `Tensor`s and `IndexedSlices`.
@@ -335,7 +340,7 @@ def _SwitchRefOrTensor(data, pred, name="Switch"):
     name: A name for this operation (optional).
 
   Returns:
-    `(output_false, output_false)`: If `pred` is true, data will be forwarded to
+    `(output_false, output_true)`: If `pred` is true, data will be forwarded to
     `output_true`, otherwise it goes to `output_false`.
 
   Raises:
@@ -435,10 +440,14 @@ def _convert_tensorarray_to_flow(tensor_or_tensor_array):
 
 
 def _make_tensor_array(ta, t_or_flow):
+  # pylint: disable=protected-access
   new_ta = tensor_array_ops.TensorArray(
       dtype=ta.dtype, handle=ta.handle, flow=t_or_flow,
-      infer_shape=ta._infer_shape)
-  new_ta._element_shape = ta._element_shape  # pylint: disable=protected-access
+      infer_shape=ta._infer_shape,
+      colocate_with_first_write_call=ta._colocate_with_first_write_call)
+  new_ta._colocate_with = ta._colocate_with
+  new_ta._element_shape = ta._element_shape
+  # pylint: enable=protected-access
   return new_ta
 
 
@@ -674,7 +683,7 @@ class GradLoopState(object):
     # The while loop context for backprop.
     self._grad_context = None
 
-    # The loop counter added by AddBackPropLoopCounter. It is the value
+    # The loop counter added by AddBackpropLoopCounter. It is the value
     # of the loop counter for the current iteration.
     self._grad_index = None
 
@@ -716,8 +725,8 @@ class GradLoopState(object):
                                         forward_ctxt.swap_memory,
                                         forward_ctxt.name,
                                         self)
-      real_cnt = outer_grad_state.AddBackPropAccumulatedValue(history_cnt, cnt)
-      self._grad_index = self._grad_context.AddBackPropLoopCounter(
+      real_cnt = outer_grad_state.AddBackpropAccumulatedValue(history_cnt, cnt)
+      self._grad_index = self._grad_context.AddBackpropLoopCounter(
           real_cnt, outer_grad_state)
       outer_grad_ctxt.Exit()
     else:
@@ -727,7 +736,7 @@ class GradLoopState(object):
                                         forward_ctxt.swap_memory,
                                         forward_ctxt.name,
                                         self)
-      self._grad_index = self._grad_context.AddBackPropLoopCounter(
+      self._grad_index = self._grad_context.AddBackpropLoopCounter(
           cnt, outer_grad_state)
       if outer_forward_ctxt: outer_forward_ctxt.Exit()
 
@@ -782,6 +791,8 @@ class GradLoopState(object):
         self._grad_sync = control_trigger(name="b_sync")
       self._grad_sync._set_control_flow_context(self._grad_context)
       self._grad_index.op._add_control_input(self._grad_sync)
+      if self._grad_context.outer_context:
+        self._grad_context.outer_context.AddInnerOp(self._grad_sync)
     return self._grad_sync
 
   @property
@@ -855,7 +866,8 @@ class GradLoopState(object):
       if curr_ctxt: curr_ctxt.Enter()
       with ops.colocate_with(value):
         # pylint: disable=protected-access
-        acc = gen_data_flow_ops._stack(value.dtype.base_dtype, name="f_acc")
+        acc = gen_data_flow_ops._stack_v2(-1, value.dtype.base_dtype,
+                                          name="f_acc")
         # pylint: enable=protected-access
       if curr_ctxt: curr_ctxt.Exit()
 
@@ -868,8 +880,10 @@ class GradLoopState(object):
       if value_ctxt == self.forward_context:
         # value is not nested in the forward context.
         self.forward_context.Enter()
-        push = gen_data_flow_ops._stack_push(
+        # pylint: disable=protected-access
+        push = gen_data_flow_ops._stack_push_v2(
             enter_acc, value, swap_memory=swap_enabled)
+        # pylint: enable=protected-access
         self.forward_context.Exit()
         # Protect stack push and order it before forward_index.
         self.forward_index.op._add_control_input(push.op)
@@ -882,14 +896,18 @@ class GradLoopState(object):
           # The special case for creating a zero tensor for a dead
           # branch of a switch. See ControlFlowState.ZerosLike().
           value_ctxt.outer_context.Enter()
-          push = gen_data_flow_ops._stack_push(
+          # pylint: disable=protected-access
+          push = gen_data_flow_ops._stack_push_v2(
               enter_acc, value, swap_memory=swap_enabled)
+          # pylint: enable=protected-access
           value_ctxt.outer_context.Exit()
           push.op._set_control_flow_context(value_ctxt)
         else:
           value_ctxt.Enter()
-          push = gen_data_flow_ops._stack_push(
+          # pylint: disable=protected-access
+          push = gen_data_flow_ops._stack_push_v2(
               enter_acc, value, swap_memory=swap_enabled)
+          # pylint: enable=protected-access
           value_ctxt.Exit()
         # Protect stack push and order it before forward_sync.
         self.forward_sync._add_control_input(push.op)
@@ -898,7 +916,7 @@ class GradLoopState(object):
       push.op._add_control_input(add_op)
       return acc
 
-  def AddBackPropAccumulatedValue(self, history_value, value,
+  def AddBackpropAccumulatedValue(self, history_value, value,
                                   dead_branch=False):
     """Add the getter for an accumulated value in the grad context.
 
@@ -936,7 +954,10 @@ class GradLoopState(object):
           pred = cond_ctxt.pred
         branch = (1 - cond_ctxt.branch) if dead_branch else cond_ctxt.branch
         history_value = _SwitchRefOrTensor(history_value, pred)[branch]
-      pop = gen_data_flow_ops._stack_pop(history_value, value.dtype.base_dtype)
+      # pylint: disable=protected-access
+      pop = gen_data_flow_ops._stack_pop_v2(history_value,
+                                            value.dtype.base_dtype)
+      # pylint: enable=protected-access
       pop.set_shape(value.get_shape())
       self.grad_context.Exit()
     parallel_iterations = self.grad_context.parallel_iterations
@@ -977,9 +998,16 @@ class GradLoopState(object):
             # the right control flow context.
             real_value = self._grad_context.AddValue(cur_value)
             break
+        elif constant_op.is_constant(cur_value):
+          # If the value to be forwarded is a constant, clone the constant in
+          # the gradient loop rather than using a stack.
+          # TODO(phawkins): consider hoisting the constant out of the loop
+          # instead.
+          real_value = constant_op.constant(
+              tensor_util.constant_value(cur_value), dtype=cur_value.dtype)
+          break
         else:
           # Record the history of this value in forward_ctxt.
-          # TODO(yuanbyu): Avoid recording constants.
           self._grad_context.Exit()
           history_value = cur_grad_state.AddForwardAccumulator(cur_value)
           self._grad_context.Enter()
@@ -987,7 +1015,7 @@ class GradLoopState(object):
 
       if real_value is None:
         # Add the stack pop op in the grad context.
-        real_value = cur_grad_state.AddBackPropAccumulatedValue(history_value,
+        real_value = cur_grad_state.AddBackpropAccumulatedValue(history_value,
                                                                 cur_value)
         if cur_grad_state != self:
           real_value = self._grad_context.AddValue(real_value)
@@ -1031,10 +1059,10 @@ class ControlFlowState(object):
     Otherwise, they will enter the backprop loop with None. As an example,
     people often write:
 
-           ```
-           v1, _ = tf.while_loop(p, b, [x1, x2])
-           result = gradients(v1, x1)
-           ```
+    ```python
+    v1, _ = tf.while_loop(p, b, [x1, x2])
+    result = gradients(v1, x1)
+    ```
 
     The exit node for x2 is not included by the betweenness analysis. But we
     need to backprop x2 if x2 is involved in computing v1.
@@ -1049,15 +1077,19 @@ class ControlFlowState(object):
     """
     loop_exits = []
     for _, grad_state in self._map.items():
+      # pylint: disable=protected-access
       for y in grad_state.forward_loop_exits:
-        # pylint: disable=protected-access
         if pending_count[y.op._id] == 0:
           grad_state.pending_exits_count -= 1
           if y.op._id not in to_ops_set:
             grad_state.unused_exits.append(y)
           if grad_state.pending_exits_count == 0:
             loop_exits.extend(grad_state.unused_exits)
-        # pylint: enable=protected-access
+      # Need to include Enters in backprop for higher-order gradients.
+      for y in grad_state.forward_context.loop_enters:
+        if pending_count[y.op._id] == 0:
+          pending_count[y.op._id] = 1
+      # pylint: enable=protected-access
     return loop_exits
 
   def EnterGradWhileContext(self, op, before):
@@ -1140,7 +1172,7 @@ class ControlFlowState(object):
         # Get the shape back from the stack.
         outer_grad_ctxt = outer_grad_state.grad_context
         outer_grad_ctxt.Enter()
-        real_shape = outer_grad_state.AddBackPropAccumulatedValue(
+        real_shape = outer_grad_state.AddBackpropAccumulatedValue(
             history_shape, shape)
         result = array_ops.zeros(real_shape, val.dtype)
         outer_grad_ctxt.Exit()
@@ -1210,7 +1242,7 @@ class ControlFlowState(object):
       grad_state.grad_context.Enter()
 
       # Create a zero tensor with the right shape.
-      shape = grad_state.AddBackPropAccumulatedValue(
+      shape = grad_state.AddBackpropAccumulatedValue(
           history_zeros_shape, zeros_shape, dead_branch)
       result = array_ops.zeros(shape, val.dtype)
     return result
@@ -1353,18 +1385,22 @@ class ControlFlowContext(object):
       import_scope: Optional `string`. Name scope to add.
     """
     assert isinstance(values_def, control_flow_pb2.ValuesDef)
-    self._values = set(values_def.values)
+    self._values = set(
+        ops.prepend_name_scope(value, import_scope)
+        for value in values_def.values)
     g = ops.get_default_graph()
     self._external_values = {}
     for k, v in values_def.external_values.items():
+      k = ops.prepend_name_scope(k, import_scope)
       self._external_values[k] = g.as_graph_element(
           ops.prepend_name_scope(v, import_scope))
-    op_names = set([op.split(":")[0]
-                    for op in self._values - set(self._external_values)])
+    op_names = set([
+        op.split(":")[0]
+        for op in self._values - set(self._external_values.keys())
+    ])
     for op in op_names:
       # pylint: disable=protected-access
-      g.as_graph_element(ops.prepend_name_scope(
-          op, import_scope))._set_control_flow_context(self)
+      g.as_graph_element(op)._set_control_flow_context(self)
       # pylint: enable=protected-access
 
   @property
@@ -1394,6 +1430,7 @@ class ControlFlowContext(object):
         [ops.strip_name_scope(v, export_scope)
          for v in sorted(self._values)])
     for k, v in self._external_values.items():
+      k = ops.strip_name_scope(k, export_scope)
       values_def.external_values[k] = ops.strip_name_scope(
           v.name, export_scope)
     return values_def
@@ -1458,6 +1495,15 @@ class ControlFlowContext(object):
       op._add_control_inputs(internal_control_inputs)
     return internal_control_inputs
   # pylint: enable=protected-access
+
+  def AddInnerOp(self, op):
+    """Notifies a scope about an operator added to an inner scope."""
+    if self._outer_context:
+      self._outer_context.AddInnerOp(op)
+
+  def GetControlPivot(self):
+    """Returns the pivot node for this context, or None."""
+    return None
 
 
 class CondContext(ControlFlowContext):
@@ -1590,6 +1636,9 @@ class CondContext(ControlFlowContext):
         self._values.add(result.name)
       with ops.control_dependencies(None):
         result = _SwitchRefOrTensor(result, self._pred)[self._branch]
+        if self._outer_context:
+          self._outer_context.AddInnerOp(result.op)
+
       result.op.graph.prevent_fetching(result.op)
       # pylint: disable=protected-access
       result.op._set_control_flow_context(self)
@@ -1620,10 +1669,20 @@ class CondContext(ControlFlowContext):
           # pylint: disable=protected-access
           op._update_input(index, real_x)
           # pylint: enable=protected-access
+      # Remove any external control dependency on this op.
+      self._RemoveExternalControlEdges(op)
       for x in op.outputs:
         self._values.add(x.name)
+      # pylint: disable=protected-access
+      if op.graph._is_function(op.type) or op.type == "SymbolicGradient":
+        op._add_control_input(self._pivot.op)
+      # pylint: enable=protected-access
+
     if self._outer_context or not IsLoopExit(op):
       op.graph.prevent_fetching(op)
+
+    if self._outer_context:
+      self._outer_context.AddInnerOp(op)
 
   def _ProcessOutputTensor(self, val):
     """Process an output tensor of a conditional branch."""
@@ -1740,13 +1799,13 @@ def cond(pred, true_fn=None, false_fn=None, strict=False, name=None,
   Example:
 
   ```python
-    x = tf.constant(2)
-    y = tf.constant(5)
-    def f1(): return tf.multiply(x, 17)
-    def f2(): return tf.add(y, 23)
-    r = tf.cond(tf.less(x, y), f1, f2)
-    # r is set to f1().
-    # Operations in f2 (e.g., tf.add) are not executed.
+  x = tf.constant(2)
+  y = tf.constant(5)
+  def f1(): return tf.multiply(x, 17)
+  def f2(): return tf.add(y, 23)
+  r = tf.cond(tf.less(x, y), f1, f2)
+  # r is set to f1().
+  # Operations in f2 (e.g., tf.add) are not executed.
   ```
 
   """
@@ -1773,7 +1832,12 @@ def cond(pred, true_fn=None, false_fn=None, strict=False, name=None,
   if not callable(false_fn):
     raise TypeError("false_fn must be callable.")
 
-  with ops.name_scope(name, "cond", [pred]) as name:
+  with ops.name_scope(name, "cond", [pred]):
+    if context.in_eager_mode():
+      if pred:
+        return true_fn()
+      return false_fn()
+
     # Add the Switch to the graph.
     if isinstance(pred, bool):
       raise TypeError("pred must not be a Python bool")
@@ -1922,6 +1986,8 @@ class WhileContext(ControlFlowContext):
     self._pivot = None
     # The list of exit tensors for loop variables.
     self._loop_exits = []
+    # The list of enter tensors for loop variables.
+    self._loop_enters = []
 
   def _init_from_proto(self, context_def, import_scope=None):
     """Creates a new `WhileContext` from protocol buffer.
@@ -1951,6 +2017,10 @@ class WhileContext(ControlFlowContext):
     self._loop_exits = [g.as_graph_element(
         ops.prepend_name_scope(exit_name, import_scope))
                         for exit_name in context_def.loop_exit_names]
+    # The list of enter tensors for loop variables.
+    self._loop_enters = [g.as_graph_element(
+        ops.prepend_name_scope(enter_name, import_scope))
+                         for enter_name in context_def.loop_enter_names]
     super(WhileContext, self).__init__(values_def=context_def.values_def,
                                        import_scope=import_scope)
 
@@ -1977,6 +2047,11 @@ class WhileContext(ControlFlowContext):
   def pivot(self):
     """The boolean tensor representing the loop termination condition."""
     return self._pivot
+
+  @property
+  def loop_enters(self):
+    """The list of enter tensors for loop variables."""
+    return self._loop_enters
 
   @property
   def loop_exits(self):
@@ -2011,10 +2086,12 @@ class WhileContext(ControlFlowContext):
           self._pivot_for_body.name, export_scope)
       context_def.pivot_name = ops.strip_name_scope(
           self._pivot.name, export_scope)
-      if self._loop_exits:
-        context_def.loop_exit_names.extend(
-            [ops.strip_name_scope(l.name, export_scope)
-             for l in self._loop_exits])
+      context_def.loop_exit_names.extend(
+          [ops.strip_name_scope(l.name, export_scope)
+           for l in self._loop_exits])
+      context_def.loop_enter_names.extend(
+          [ops.strip_name_scope(l.name, export_scope)
+           for l in self._loop_enters])
       context_def.values_def.MergeFrom(
           super(WhileContext, self)._to_proto(
               export_scope=export_scope))
@@ -2075,6 +2152,8 @@ class WhileContext(ControlFlowContext):
         enter = _Enter(result, self._name, is_constant=True,
                        parallel_iterations=self._parallel_iterations)
         enter.graph.prevent_feeding(enter)
+        if self._outer_context:
+          self._outer_context.AddInnerOp(enter.op)
       # Fix the control inputs and control flow context of these enter ops.
       self._FixControlInputsAndContext([enter])
 
@@ -2144,11 +2223,19 @@ class WhileContext(ControlFlowContext):
       for x in op.outputs:
         op.graph.prevent_feeding(x)
 
+    if self._outer_context:
+      self._outer_context.AddInnerOp(op)
+
   def _MaybeAddControlDependency(self, op):
     """Add a control input to the op if it only depends on loop invariants."""
     def _IsOpFree(op):
+      """Determines if `op` needs a control dependency."""
       if op.control_inputs:
         return False
+      # pylint: disable=protected-access
+      if op.graph._is_function(op.type) or op.type == "SymbolicGradient":
+        return True
+      # pylint: enable=protected-access
       for x in op.inputs:
         if not _IsLoopConstantEnter(x.op):
           return False
@@ -2189,6 +2276,8 @@ class WhileContext(ControlFlowContext):
     enter_n = _Enter(n, self._name, is_constant=False,
                      parallel_iterations=self._parallel_iterations,
                      name="f_count")
+    self.loop_enters.append(enter_n)
+
     merge_n = merge([enter_n, enter_n])[0]
     switch_n = switch(merge_n, self._pivot)
 
@@ -2202,7 +2291,7 @@ class WhileContext(ControlFlowContext):
     self.Exit()
     return total_iterations, next_n
 
-  def AddBackPropLoopCounter(self, count, outer_grad_state):
+  def AddBackpropLoopCounter(self, count, outer_grad_state):
     """Add the backprop loop that controls the iterations.
 
     This is added to the backprop loop. It is used to control the loop
@@ -2229,6 +2318,8 @@ class WhileContext(ControlFlowContext):
     enter_count = _Enter(count, self._name, is_constant=False,
                          parallel_iterations=self._parallel_iterations,
                          name="b_count")
+    self.loop_enters.append(enter_count)
+
     merge_count = merge([enter_count, enter_count])[0]
     self._pivot_for_pred = merge_count
 
@@ -2254,7 +2345,7 @@ class WhileContext(ControlFlowContext):
     self.Exit()
     return next_count
 
-  def AddBackPropAccumulator(self, op, grad):
+  def AddBackpropAccumulator(self, op, grad):
     """Add an accumulation loop for every loop invariant.
 
     This is added to the backprop loop. It is used to accumulate partial
@@ -2300,7 +2391,7 @@ class WhileContext(ControlFlowContext):
         history_zeros_shape = outer_grad_state.AddForwardAccumulator(
             zeros_shape)
         self.outer_context.Enter()
-        real_shape = outer_grad_state.AddBackPropAccumulatedValue(
+        real_shape = outer_grad_state.AddBackpropAccumulatedValue(
             history_zeros_shape, zeros_shape)
         acc = array_ops.zeros(real_shape, grad.dtype)
         self.outer_context.Exit()
@@ -2316,6 +2407,8 @@ class WhileContext(ControlFlowContext):
     enter_acc = _Enter(acc, self._name, is_constant=False,
                        parallel_iterations=self._parallel_iterations,
                        name="b_acc")
+    self.loop_enters.append(enter_acc)
+
     merge_acc = merge([enter_acc, enter_acc], name="b_acc")[0]
     switch_acc_false, switch_acc_true = switch(merge_acc, self._pivot)
 
@@ -2323,15 +2416,15 @@ class WhileContext(ControlFlowContext):
     next_acc = _NextIteration(add_acc)
     merge_acc.op._update_input(1, next_acc)  # pylint: disable=protected-access
 
-    acc_result = exit(switch_acc_false, name="b_acc")
-    self.loop_exits.append(acc_result)
-    self.ExitResult([acc_result])
-    return acc_result
+    result_acc = exit(switch_acc_false, name="b_acc")
+    self.loop_exits.append(result_acc)
+    self.ExitResult([result_acc])
+    return result_acc
 
-  def AddBackPropIndexedSlicesAccumulator(self, op, grad):
+  def AddBackpropIndexedSlicesAccumulator(self, op, grad):
     """This is used for accumulating gradients that are IndexedSlices.
 
-    This is essentially the equavalent of AddBackPropAccumulator but optimized
+    This is essentially the equivalent of AddBackpropAccumulator but optimized
     for things like updating embeddings from within a while loop.
 
     Args:
@@ -2383,6 +2476,8 @@ class WhileContext(ControlFlowContext):
     enter_acc = [_Enter(x, self._name, is_constant=False,
                         parallel_iterations=self._parallel_iterations,
                         name="b_acc") for x in init_acc]
+    self.loop_enters.extend(enter_acc)
+
     merge_acc = [merge([x, x], name="b_acc")[0] for x in enter_acc]
     switch_acc = [switch(x, self._pivot) for x in merge_acc]
 
@@ -2400,13 +2495,13 @@ class WhileContext(ControlFlowContext):
     for xm, xn in zip(merge_acc, next_acc):
       xm.op._update_input(1, xn)  # pylint: disable=protected-access
 
-    acc_exits = [exit(x[0], name="b_acc") for x in switch_acc]
-    self.loop_exits.extend(acc_exits)
+    exit_acc = [exit(x[0], name="b_acc") for x in switch_acc]
+    self.loop_exits.extend(exit_acc)
 
-    self.ExitResult(acc_exits)
+    self.ExitResult(exit_acc)
     return ops.IndexedSlices(
-        indices=acc_exits[0], values=acc_exits[1],
-        dense_shape=acc_exits[2] if shape_acc is not None else None)
+        indices=exit_acc[0], values=exit_acc[1],
+        dense_shape=exit_acc[2] if shape_acc is not None else None)
 
   def _InitializeValues(self, values):
     """Makes the values known to this context."""
@@ -2444,19 +2539,30 @@ class WhileContext(ControlFlowContext):
                     for x in real_vars]
       for x in enter_vars:
         x.graph.prevent_feeding(x)
+        if self._outer_context:
+          self._outer_context.AddInnerOp(x.op)
 
-    if self._outer_context:
-      control_pivot = self._outer_context.GetControlPivot().op
+    # Finds the closest enclosing non-None control pivot.
+    outer_context = self._outer_context
+    control_pivot = None
+    while outer_context is not None and control_pivot is None:
+      control_pivot = outer_context.GetControlPivot()
+      # pylint: disable=protected-access
+      outer_context = outer_context._outer_context
+      # pylint: enable=protected-access
+
+    if control_pivot is not None:
       for var in enter_vars:
         if _IsLoopConstantEnter(var.op.inputs[0].op):
           # pylint: disable=protected-access
-          var.op._add_control_input(control_pivot)
+          var.op._add_control_input(control_pivot.op)
           # pylint: enable=protected-access
     _SetShapeInvariants(real_vars, enter_vars, shape_invariants)
 
     # Fix the control inputs and control flow context of these enter ops.
     self._FixControlInputsAndContext(enter_vars)
     self._InitializeValues(enter_vars)
+    self._loop_enters = enter_vars
 
     merge_vars = [merge([x, x])[0] for x in enter_vars]
     self._pivot_for_pred = merge_vars[0]
@@ -2589,8 +2695,8 @@ def while_loop(cond, body, loop_vars, shape_invariants=None,
   Note that `while_loop` calls `cond` and `body` *exactly once* (inside the
   call to `while_loop`, and not at all during `Session.run()`). `while_loop`
   stitches together the graph fragments created during the `cond` and `body`
-  calls with some additional graph nodes to make something the repeats
-  `body` until `cond` returns false.
+  calls with some additional graph nodes to create the graph flow that
+  repeats `body` until `cond` returns false.
 
   For correctness, `tf.while_loop()` strictly enforces shape invariants for
   the loop variables. A shape invariant is a (possibly partial) shape that
@@ -2626,11 +2732,11 @@ def while_loop(cond, body, loop_vars, shape_invariants=None,
   memory consumption and execution order. For correct programs, `while_loop`
   should return the same result for any parallel_iterations > 0.
 
-  For training, TensorFlow remembers the tensors that are produced in the
-  forward inference but needed in back propagation. These tensors can be a
-  main source of memory consumption and often cause OOM problems when training
-  on GPUs.  When the flag swap_memory is true, we swap out these tensors from
-  GPU to CPU.  This for example allows us to train RNN models with very long
+  For training, TensorFlow stores the tensors that are produced in the
+  forward inference and are needed in back propagation. These tensors are a
+  main source of memory consumption and often cause OOM errors when training
+  on GPUs. When the flag swap_memory is true, we swap out these tensors from
+  GPU to CPU. This for example allows us to train RNN models with very long
   sequences and large batches.
 
   Args:
@@ -2687,7 +2793,7 @@ def while_loop(cond, body, loop_vars, shape_invariants=None,
   ```
 
   """
-  with ops.name_scope(name, "while", loop_vars) as name:
+  with ops.name_scope(name, "while", loop_vars):
     if not loop_vars:
       raise ValueError("No loop variables provided")
     if not callable(cond):
@@ -2697,12 +2803,17 @@ def while_loop(cond, body, loop_vars, shape_invariants=None,
     if parallel_iterations < 1:
       raise TypeError("parallel_iterations must be a positive integer.")
 
+    if context.in_eager_mode():
+      while cond(*loop_vars):
+        loop_vars = body(*loop_vars)
+      return loop_vars
+
     if shape_invariants is not None:
       nest.assert_same_structure(loop_vars, shape_invariants)
 
-    context = WhileContext(parallel_iterations, back_prop, swap_memory, name)
-    ops.add_to_collection(ops.GraphKeys.WHILE_CONTEXT, context)
-    result = context.BuildLoop(cond, body, loop_vars, shape_invariants)
+    loop_context = WhileContext(parallel_iterations, back_prop, swap_memory)  # pylint: disable=redefined-outer-name
+    ops.add_to_collection(ops.GraphKeys.WHILE_CONTEXT, loop_context)
+    result = loop_context.BuildLoop(cond, body, loop_vars, shape_invariants)
     return result
 
 
@@ -2768,6 +2879,8 @@ def with_dependencies(dependencies, output_tensor, name=None):
   Raises:
     TypeError: if `output_tensor` is not a `Tensor` or `IndexedSlices`.
   """
+  if context.in_eager_mode():
+    return output_tensor
   with ops.name_scope(name, "control_dependency",
                       list(dependencies) + [output_tensor]) as name:
     with ops.colocate_with(output_tensor):
@@ -2811,6 +2924,8 @@ def group(*inputs, **kwargs):
   Raises:
     ValueError: If an unknown keyword argument is provided.
   """
+  if context.in_eager_mode():
+    return None
   name = kwargs.pop("name", None)
   if kwargs:
     raise ValueError("Unknown keyword arguments: " + ", ".join(kwargs.keys()))
@@ -2878,6 +2993,8 @@ def tuple(tensors, name=None, control_inputs=None):
       objects.
 
   """
+  if context.in_eager_mode():
+    return tensors
   with ops.name_scope(name, "tuple", tensors) as name:
     gating_ops = [t.op for t in tensors if t is not None]
     if control_inputs:
@@ -2902,19 +3019,36 @@ def tuple(tensors, name=None, control_inputs=None):
     return tpl
 
 
-def case(pred_fn_pairs, default, exclusive=False, strict=False, name="case"):
+def _assert_exclusive(preds):
+  """Returns an Assert op that checks that the predicates are exclusive."""
+  preds_c = array_ops.stack(preds, name="preds_c")
+  num_true_conditions = math_ops.reduce_sum(
+      math_ops.cast(preds_c, dtypes.int32), name="num_true_conds")
+  at_most_one_true_condition = math_ops.less(
+      num_true_conditions, constant_op.constant(2, name="two_true_conds"))
+
+  error_msg = [("More than one condition evaluated as True but "
+                "exclusive=True.  Conditions: (%s), Values:"
+                % ", ".join([p.name for p in preds])),
+               preds_c]
+  return Assert(condition=at_most_one_true_condition, data=error_msg,
+                summarize=len(preds))
+
+
+def case(pred_fn_pairs, default=None, exclusive=False, strict=False,
+         name="case"):
   """Create a case operation.
 
   The `pred_fn_pairs` parameter is a dict or list of pairs of size N.
   Each pair contains a boolean scalar tensor and a python callable that
   creates the tensors to be returned if the boolean evaluates to True.
   `default` is a callable generating a list of tensors. All the callables
-  in `pred_fn_pairs` as well as `default` should return the same number
-  and types of tensors.
+  in `pred_fn_pairs` as well as `default` (if provided) should return the same
+  number and types of tensors.
 
   If `exclusive==True`, all predicates are evaluated, and an exception is
   thrown if more than one of the predicates evaluates to `True`.
-  If `exclusive==False`, execution stops are the first predicate which
+  If `exclusive==False`, execution stops at the first predicate which
   evaluates to True, and the tensors generated by the corresponding function
   are returned immediately. If none of the predicates evaluate to True, this
   operation returns the tensors generated by `default`.
@@ -2926,42 +3060,53 @@ def case(pred_fn_pairs, default, exclusive=False, strict=False, name="case"):
   a callable, they are implicitly unpacked to single values. This
   behavior is disabled by passing `strict=True`.
 
-  Example 1:
-    Pseudocode:
-    ```
-      if (x < y) return 17;
-      else return 23;
-    ```
+  If an unordered dictionary is used for `pred_fn_pairs`, the order of the
+  conditional tests is not guaranteed. However, the order is guaranteed to be
+  deterministic, so that variables created in conditional branches are created
+  in fixed order across runs.
 
-    Expressions:
-    ```
-      f1 = lambda: tf.constant(17)
-      f2 = lambda: tf.constant(23)
-      r = case([(tf.less(x, y), f1)], default=f2)
-    ```
+  **Example 1:**
 
-  Example 2:
-    Pseudocode:
-    ```
-      if (x < y && x > z) raise OpError("Only one predicate may evaluate true");
-      if (x < y) return 17;
-      else if (x > z) return 23;
-      else return -1;
-    ```
+  Pseudocode:
 
-    Expressions:
-    ```
-      def f1(): return tf.constant(17)
-      def f2(): return tf.constant(23)
-      def f3(): return tf.constant(-1)
-      r = case({tf.less(x, y): f1, tf.greater(x, z): f2},
-               default=f3, exclusive=True)
-    ```
+  ```
+  if (x < y) return 17;
+  else return 23;
+  ```
+
+  Expressions:
+
+  ```python
+  f1 = lambda: tf.constant(17)
+  f2 = lambda: tf.constant(23)
+  r = case([(tf.less(x, y), f1)], default=f2)
+  ```
+
+  **Example 2:**
+
+  Pseudocode:
+
+  ```
+  if (x < y && x > z) raise OpError("Only one predicate may evaluate true");
+  if (x < y) return 17;
+  else if (x > z) return 23;
+  else return -1;
+  ```
+
+  Expressions:
+
+  ```python
+  def f1(): return tf.constant(17)
+  def f2(): return tf.constant(23)
+  def f3(): return tf.constant(-1)
+  r = case({tf.less(x, y): f1, tf.greater(x, z): f2},
+           default=f3, exclusive=True)
+  ```
 
   Args:
     pred_fn_pairs: Dict or list of pairs of a boolean scalar tensor and a
                    callable which returns a list of tensors.
-    default: A callable that returns a list of tensors.
+    default: Optional callable that returns a list of tensors.
     exclusive: True iff at most one predicate is allowed to evaluate to `True`.
     strict: A boolean that enables/disables 'strict' mode; see above.
     name: A name for this operation (optional).
@@ -2975,17 +3120,26 @@ def case(pred_fn_pairs, default, exclusive=False, strict=False, name="case"):
     TypeError: If `pred_fn_pairs` is a list but does not contain 2-tuples.
     TypeError: If `fns[i]` is not callable for any i, or `default` is not
                callable.
+    ValueError: If in eager mode and all predicates are false and no
+               default is provided.
+    ValueError: If in eager mode and is passed a dictionary.
   """
   pfp = pred_fn_pairs  # For readability
   if not (isinstance(pfp, list) or isinstance(pfp, _basetuple)
           or isinstance(pfp, dict)):
     raise TypeError("fns must be a list, tuple, or dict")
   if isinstance(pfp, dict):
-    pfp = pfp.items()
-    if not exclusive:
-      logging.warn("%s: Provided dictionary of predicate/fn pairs, but "
-                   "exclusive=False.  Order of conditional tests is "
-                   "not guaranteed.", name)
+    if context.in_eager_mode():
+      raise ValueError(
+          "In eager mode the predicates must be a list, not a dictionary.")
+    if isinstance(pfp, collections.OrderedDict):
+      pfp = pfp.items()
+    else:
+      pfp = sorted(pfp.items(), key=lambda item: item[0].name)
+      if not exclusive:
+        logging.warn("%s: An unordered dictionary of predicate/fn pairs was "
+                     "provided, but exclusive=False. The order of conditional "
+                     "tests is deterministic but not guaranteed.", name)
   for tup in pfp:
     if not isinstance(tup, _basetuple) or len(tup) != 2:
       raise TypeError("Each entry in pred_fn_pairs must be a 2-tuple")
@@ -2994,11 +3148,41 @@ def case(pred_fn_pairs, default, exclusive=False, strict=False, name="case"):
       raise TypeError("pred must be of type bool: %s", pred.name)
     if not callable(fn):
       raise TypeError("fn for pred %s must be callable." % pred.name)
-  if not callable(default):
+
+  if default is not None and not callable(default):
     raise TypeError("default must be callable.")
 
+  if context.in_eager_mode():
+    for pred, fn in pfp:
+      if pred:
+        return fn()
+    if default is None:
+      raise ValueError("tf.case received all false predicates and no default.")
+    return default()
+
   preds, fns = map(list, zip(*pfp))
+  del pfp  # From now on, preds and fns form the source of truth.
+
   with ops.name_scope(name, "case", [preds]):
+    exclusivity_assert = _assert_exclusive(preds) if exclusive else None
+    # If no default is provided, then we remove one of the (predicate, function)
+    # pairs and define the default to be the removed function with an additional
+    # control dependency that asserts that the removed predicate holds.
+    if default is None:
+      all_preds = _basetuple(preds)  # For the error message.
+      last_pred, last_fn = preds.pop(), fns.pop()
+      def new_default():
+        preds_c = array_ops.stack(all_preds, name="preds_c")
+        error_msg = [
+            ("None of the conditions evaluated as True. Conditions: (%s), "
+             "Values:" % ", ".join([p.name for p in all_preds])),
+            preds_c]
+        assertion = Assert(condition=last_pred,
+                           data=error_msg, summarize=len(all_preds))
+        with ops.control_dependencies([assertion]):
+          return last_fn()
+      default = new_default
+
     if not preds:
       return default()
     not_preds = []
@@ -3073,21 +3257,8 @@ def case(pred_fn_pairs, default, exclusive=False, strict=False, name="case"):
             strict=strict, name="If_%d" % i)
       return prev_case
 
-    if exclusive:
-      preds_c = array_ops.stack(preds, name="preds_c")
-      num_true_conditions = math_ops.reduce_sum(
-          math_ops.cast(preds_c, dtypes.int32), name="num_true_conds")
-      at_most_one_true_condition = math_ops.less(
-          num_true_conditions, constant_op.constant(2, name="two_true_conds"))
-
-      error_msg = [
-          ("More than one condition evaluated as True but "
-           "exclusive=True.  Conditions: (%s), Values:"
-           % ", ".join([p.name for p in preds])),
-          preds_c]
-      with ops.control_dependencies([
-          Assert(condition=at_most_one_true_condition,
-                 data=error_msg, summarize=len(preds))]):
+    if exclusivity_assert is not None:
+      with ops.control_dependencies([exclusivity_assert]):
         case_seq = _build_case()
     else:
       case_seq = _build_case()

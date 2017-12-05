@@ -21,8 +21,8 @@ limitations under the License.
 #include "tensorflow/core/framework/tensor_types.h"
 #include "tensorflow/core/util/tensor_format.h"
 
-#include "third_party/mkl/include/mkl_dnn.h"
-#include "third_party/mkl/include/mkl_dnn_types.h"
+#include "mkl_dnn.h"
+#include "mkl_dnn_types.h"
 #include "tensorflow/core/util/mkl_util.h"
 
 // TODO(inteltf) Address comments from PR 8968.
@@ -326,7 +326,7 @@ class MklFusedBatchNormOp : public OpKernel {
 };
 
 #define REGISTER_MKL_CPU(T)                                         \
-  REGISTER_KERNEL_BUILDER(Name("_MklFusedBatchNorm")                 \
+  REGISTER_KERNEL_BUILDER(Name("_MklFusedBatchNorm")                \
                               .Device(DEVICE_CPU)                   \
                               .TypeConstraint<T>("T")               \
                               .Label(mkl_op_registry::kMklOpLabel), \
@@ -677,7 +677,7 @@ class MklFusedBatchNormGradOp : public OpKernel {
 };
 
 #define REGISTER_MKL_CPU(T)                                         \
-  REGISTER_KERNEL_BUILDER(Name("_MklFusedBatchNormGrad")             \
+  REGISTER_KERNEL_BUILDER(Name("_MklFusedBatchNormGrad")            \
                               .Device(DEVICE_CPU)                   \
                               .TypeConstraint<T>("T")               \
                               .Label(mkl_op_registry::kMklOpLabel), \

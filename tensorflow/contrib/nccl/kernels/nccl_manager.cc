@@ -14,6 +14,8 @@ limitations under the License.
 ==============================================================================*/
 #include "tensorflow/contrib/nccl/kernels/nccl_manager.h"
 
+#include <utility>
+
 #ifdef GOOGLE_CUDA
 
 #include "tensorflow/core/lib/core/threadpool.h"
@@ -64,7 +66,7 @@ struct NcclManager::CommunicatorMember {
 
 struct NcclManager::Communicator {
  public:
-  Communicator(std::vector<CommunicatorMember> members)
+  explicit Communicator(std::vector<CommunicatorMember> members)
       : num_devices(members.size()), members(std::move(members)) {}
 
   const int num_devices;
@@ -258,7 +260,7 @@ NcclManager::Communicator* NcclManager::GetCommunicator(
 
   std::vector<ncclComm_t> nccl_comms(num_devices);
   auto result = ncclCommInitAll(nccl_comms.data(), num_devices, devices.data());
-  CHECK_EQ(result, ncclSuccess);
+  CHECK_EQ(result, ncclSuccess) << ncclGetErrorString(result);
   for (int rank = 0; rank < num_devices; ++rank) {
     members[rank].nccl_comm = nccl_comms[rank];
   }
@@ -287,7 +289,7 @@ void NcclManager::AddBroadcastSend(
     const Tensor* in_t, DoneCallback done_callback) {
   std::unique_ptr<Participant> participant(
       new Participant(in_t, nullptr /* out_t */, event_mgr, tensor_stream,
-                      executor, gpu_device_id, done_callback));
+                      executor, gpu_device_id, std::move(done_callback)));
   participant->root = true;
   AddParticipant(num_devices, key, std::move(participant), in_t->dtype(),
                  kBroadcast, ncclSum /* unused */);
@@ -300,9 +302,38 @@ void NcclManager::AddBroadcastRecv(
     Tensor* out_t, DoneCallback done_callback) {
   std::unique_ptr<Participant> participant(
       new Participant(nullptr /* in_t */, out_t, event_mgr, tensor_stream,
-                      executor, gpu_device_id, done_callback));
+                      executor, gpu_device_id, std::move(done_callback)));
   AddParticipant(num_devices, key, std::move(participant), out_t->dtype(),
                  kBroadcast, ncclSum /* unused */);
+}
+
+void NcclManager::AddReduceSend(int num_devices, const string& key,
+                                ncclRedOp_t reduction_op,
+                                perftools::gputools::StreamExecutor* executor,
+                                int gpu_device_id, EventMgr* event_mgr,
+                                perftools::gputools::Stream* tensor_stream,
+                                const Tensor* in_t,
+                                DoneCallback done_callback) {
+  std::unique_ptr<Participant> participant(
+      new Participant(in_t, nullptr /* out_t */, event_mgr, tensor_stream,
+                      executor, gpu_device_id, std::move(done_callback)));
+  AddParticipant(num_devices, key, std::move(participant), in_t->dtype(),
+                 kReduce, reduction_op);
+}
+
+void NcclManager::AddReduceRecv(int num_devices, const string& key,
+                                ncclRedOp_t reduction_op,
+                                perftools::gputools::StreamExecutor* executor,
+                                int gpu_device_id, EventMgr* event_mgr,
+                                perftools::gputools::Stream* tensor_stream,
+                                const Tensor* in_t, Tensor* out_t,
+                                DoneCallback done_callback) {
+  std::unique_ptr<Participant> participant(
+      new Participant(in_t, out_t, event_mgr, tensor_stream, executor,
+                      gpu_device_id, std::move(done_callback)));
+  participant->root = true;
+  AddParticipant(num_devices, key, std::move(participant), in_t->dtype(),
+                 kReduce, reduction_op);
 }
 
 void NcclManager::AddParticipant(int num_devices, const string& key,
@@ -429,6 +460,16 @@ void NcclManager::LoopKernelLaunches(NcclStream* nccl_stream) {
                                 collective->root_rank, nccl_comm, *cu_stream);
         break;
       }
+      case kReduce: {
+        const void* sendbuff = p->in_t->tensor_data().data();
+        void* recvbuff = p->out_t
+                             ? const_cast<char*>(p->out_t->tensor_data().data())
+                             : nullptr;
+        nccl_result = ncclReduce(sendbuff, recvbuff, p->in_t->NumElements(),
+                                 data_type, collective->reduction_op,
+                                 collective->root_rank, nccl_comm, *cu_stream);
+        break;
+      }
     }
 
     // Run the done_callback when the nccl kernel finishes running.
@@ -439,7 +480,7 @@ void NcclManager::LoopKernelLaunches(NcclStream* nccl_stream) {
         // Propagate the error, but note that if other members of the collective
         // did launch their kernels, then they are hanging.
         collective->participants[rank]->done_callback(errors::Unknown(
-            "Error invoking AllReduce: ", ncclGetErrorString(nccl_result)));
+            "Error invoking NCCL: ", ncclGetErrorString(nccl_result)));
       }
 
       // TODO(cwhipkey): use RefCounted after figuring out how to use in a

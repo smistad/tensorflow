@@ -36,11 +36,10 @@ TensorFlow uses Bazel build system and enforces next requirements:
 
 ```
 # Description:
-# <...>
+#   <...>
 
 package(
     default_visibility = ["//visibility:private"],
-    features = ["-parse_headers"],
 )
 
 licenses(["notice"])  # Apache 2.0
@@ -162,9 +161,9 @@ operation.
   - `reuse`: `bool` indicator if the variable should be reused if
              it's present in the scope.
 
-* Layers that behave differently during training should have:
-  - `is_training`: `bool` to indicate if a training graph is been built.
-
+* Layers that behave differently during training should take:
+  - `is_training`: `bool` indicator to conditionally choose different 
+                   computation paths (e.g. using `tf.cond`) during execution.
 
 Example:
 
