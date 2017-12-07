@@ -626,18 +626,6 @@ tf_cc_shared_object(
 
 tf_cc_shared_object(
     name = "libtensorflow_cc.so",
-    linkopts = select({
-        "//tensorflow:darwin": [
-            "-Wl,-exported_symbols_list",  # This line must be directly followed by the exported_symbols.lds file
-            "//tensorflow:tf_exported_symbols.lds",
-        ],
-        "//tensorflow:windows": [],
-        "//tensorflow:windows_msvc": [],
-        "//conditions:default": [
-            "-z defs",
-            "-s",
-        ],
-    }),
     deps = [
         "//tensorflow/c:c_api",
         "//tensorflow/c/eager:c_api",
