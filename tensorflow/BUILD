@@ -636,8 +636,6 @@ tf_cc_shared_object(
         "//conditions:default": [
             "-z defs",
             "-s",
-            "-Wl,--version-script",  #  This line must be directly followed by the version_script.lds file
-            "//tensorflow:tf_version_script.lds",
             "-Wl,--allow-multiple-definition",
             "-Wl,--whole-archive",
         ],
