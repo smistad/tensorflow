@@ -585,8 +585,13 @@ tf_cc_shared_object(
         "//tensorflow/core:core_cpu_impl",
         "//tensorflow/stream_executor:stream_executor_impl",
         "//tensorflow/core:gpu_runtime_impl",
+        "//tensorflow/c:c_api",
+        "//tensorflow/c/eager:c_api",
+        "//tensorflow/cc:cc_ops",
         "//tensorflow/cc:client_session",
         "//tensorflow/core:direct_session",
+        "//tensorflow/cc:scope",
+        "//tensorflow/core:tensorflow",
     ] + tf_additional_binary_deps(),
 )
 
