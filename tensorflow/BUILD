@@ -638,8 +638,6 @@ tf_cc_shared_object(
             "-s",
             "-Wl,--version-script",  #  This line must be directly followed by the version_script.lds file
             "//tensorflow:tf_version_script.lds",
-            "-Wl,--allow-multiple-definition",
-            "-Wl,--whole-archive",
         ],
     }),
     deps = [
@@ -649,6 +647,7 @@ tf_cc_shared_object(
         "//tensorflow/c/eager:c_api",
         "//tensorflow/cc:cc_ops",
         "//tensorflow/cc:client_session",
+        "//tensorflow/cc:direct_session",
         "//tensorflow/cc:scope",
         "//tensorflow/core:tensorflow",
     ],
