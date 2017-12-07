@@ -575,6 +575,10 @@ tf_cc_shared_object(
     framework_so = [],
     linkstatic = 1,
     visibility = ["//visibility:public"],
+    linkopts = [
+            "-Wl,--allow-multiple-definition", 
+            "-Wl,--whole-archive",
+    ],
     deps = [
         "//tensorflow/core:framework_internal_impl",
         "//tensorflow/core:lib_internal_impl",
