@@ -591,7 +591,6 @@ tf_cc_shared_object(
         "//tensorflow/cc:client_session",
         "//tensorflow/core:direct_session",
         "//tensorflow/cc:scope",
-        "//tensorflow/core:tensorflow",
     ] + tf_additional_binary_deps(),
 )
 
