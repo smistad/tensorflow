@@ -625,7 +625,7 @@ tf_cc_shared_object(
 )
 
 tf_cc_shared_object(
-    name = "libtensorflow_cc.so",
+    name = "libtensorflow_cc2.so",
     linkopts = select({
         "//tensorflow:darwin": [
             "-Wl,-exported_symbols_list",  # This line must be directly followed by the exported_symbols.lds file
@@ -645,6 +645,18 @@ tf_cc_shared_object(
         "//tensorflow:tf_version_script.lds",
         "//tensorflow/c:c_api",
         "//tensorflow/c/eager:c_api",
+        "//tensorflow/cc:cc_ops",
+        "//tensorflow/cc:client_session",
+        "//tensorflow/cc:scope",
+        "//tensorflow/core:tensorflow",
+    ],
+)
+
+cc_binary(
+    name = "libtensorflow_cc.so",
+    linkshared = 1,
+    deps = [
+        "//tensorflow/c:c_api",
         "//tensorflow/cc:cc_ops",
         "//tensorflow/cc:client_session",
         "//tensorflow/cc:scope",
