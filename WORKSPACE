@@ -14,6 +14,12 @@ load("@io_bazel_rules_closure//closure:defs.bzl", "closure_repositories")
 
 closure_repositories()
 
+# We must check the bazel version before trying to parse any other BUILD
+# files, in case the parsing of those build files depends on the bazel
+# version we require here.
+load("//tensorflow:version_check.bzl", "check_bazel_version_at_least")
+check_bazel_version_at_least("0.10.0")
+
 load("//tensorflow:workspace.bzl", "tf_workspace")
 
 # Uncomment and update the paths in these entries to build the Android demo.
@@ -41,12 +47,12 @@ load("//tensorflow:workspace.bzl", "tf_workspace")
 tf_workspace()
 
 new_http_archive(
-    name = "inception5h",
+    name = "inception_v1",
     build_file = "models.BUILD",
-    sha256 = "d13569f6a98159de37e92e9c8ec4dae8f674fbf475f69fe6199b514f756d4364",
+    sha256 = "7efe12a8363f09bc24d7b7a450304a15655a57a7751929b2c1593a71183bb105",
     urls = [
-        "http://storage.googleapis.com/download.tensorflow.org/models/inception5h.zip",
-        "http://download.tensorflow.org/models/inception5h.zip",
+        "http://storage.googleapis.com/download.tensorflow.org/models/inception_v1.zip",
+        "http://download.tensorflow.org/models/inception_v1.zip",
     ],
 )
 
