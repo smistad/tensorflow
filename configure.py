@@ -1119,7 +1119,7 @@ def set_tf_nccl_install_path(environ_cp):
     tf_nccl_version = get_from_env_or_user_or_default(
         environ_cp, 'TF_NCCL_VERSION', ask_nccl_version, '')
 
-    if not tf_nccl_version:
+    if not tf_nccl_version.strip():
       break  # No need to get install path, building the open source code.
 
     tf_nccl_version = reformat_version_sequence(str(tf_nccl_version), 1)
