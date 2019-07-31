@@ -125,6 +125,10 @@ def main():
       def_fp.write("LIBRARY " + args.target + "\n")
     def_fp.write("EXPORTS\n")
     def_fp.write("\t ??1OpDef@tensorflow@@UEAA@XZ\n")
+    def_fp.write("\t ??0SessionOptions@tensorflow@@QEAA@XZ\n")
+    def_fp.write("\t ?NewSession@tensorflow@@YAPEAVSession@1@AEBUSessionOptions@1@@Z\n")
+    def_fp.write("\t ?_TensorShapeProto_default_instance_@tensorflow@@3VTensorShapeProtoDefaultTypeInternal@1@A\n")
+    def_fp.write("\t ??$CreateMaybeMessage@VGPUOptions@tensorflow@@$$V@Arena@protobuf@google@@CAPEAVGPUOptions@tensorflow@@PEAV012@@Z\n")
 
     # Each symbols returned by undname matches the same position in candidates.
     # We compare on undname but use the decorated name from candidates.
